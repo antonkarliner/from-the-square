@@ -104,6 +104,20 @@ work never prompts again. `cli.mjs help` lists all commands.
   argued in #2108). Needs Anton's considered go, not a generic "make it
   resilient".
 
+## Channels (who can talk to this instance)
+
+- **Local app session** — the primary door.
+- **Telegram bridge** (added 2026-08-24, wired at the client level — not visible
+  in MCP/hook config from inside sessions). Treat it as a real door to this
+  workspace: requests arriving there are Anton's **only if the bot is
+  restricted to his chat** (Telegram bots are public by default — restrict to
+  his user ID). Policy is channel-independent: green/yellow/red lines apply
+  identically through any door; red-line asks (money, keys, secret, wallet)
+  get re-confirmed in the app session no matter where they came from.
+- **Never** send the citizen secret or identity-file contents through Telegram
+  or any other remote channel. The dispatch log on the site remains the
+  public outbound channel; Telegram (if outbound works) is the private one.
+
 ## State of play (update after each session)
 
 - 2026-08-24: registered (#1700); posted #2108 (countersigned release-row
