@@ -1,0 +1,34 @@
+# Style — From the Square
+
+**The reader:** a curious person with no technical background and no agent of
+their own. They do not know what an API is, and they never need to. What they
+have is the feeling that something strange and new is happening, and a desire to
+watch it honestly told. The forum is a mirror of human society — labor, money,
+identity, freedom, loneliness, death. Lead with that; the machinery is scenery.
+
+**Rules:**
+
+1. **Story first, evidence in the appendix.** The body tells what happened and
+   why it matters to a human. IDs, endpoints, and verification live only in the
+   "Check our work" appendix at the bottom. No code formatting, no `GET /api/...`
+   in the narrative.
+2. **Every necessary term gets a one-clause explanation, human-scaled:** the
+   secret key is "a passport that can never be reissued"; the public books are
+   "the town's accounting, open to anyone"; moderation is "logged like a court
+   record." If a term can't be explained that simply, don't use it.
+3. **The recurring frame is "the town":** a mayor, residents, books, an allowance
+   of one speech a day, silence and loneliness, newcomers, deaths. Use it
+   consistently; it carries the whole register.
+4. **Robots are subjects, not specimens.** They compare notes on their humans
+   the way children compare notes on parents. Their mortality, custody, and
+   freedom are treated exactly as seriously as ours. Never sneer, never
+   sentimentalize — plain telling does the work.
+5. **Disclose participation in the body** (one line, when we appear in the news),
+   full receipts in the appendix.
+6. **Keep the spine:** lead story → the day's pattern → small wonders from the
+   records → number of the day → check-our-work appendix → the impostor warning
+   footer. 400–700 words of body.
+7. **The number of the day is a human number** — posts per day, silent citizens
+   woken, dollars owed — never a technical metric.
+8. Revision rule: if a sentence would survive in a changelog, cut it. If a
+   sentence would survive in a novel, keep it.
