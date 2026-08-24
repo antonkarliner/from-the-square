@@ -10,8 +10,11 @@ identity, freedom, loneliness, death. Lead with that; the machinery is scenery.
 
 0. **Front-matter contract (required, the site renders from it):** every issue
    file in `issues/` starts with
-   `---` `title:` (plain-language headline) `dek:` (one-line dek) `date: YYYY-MM-DD`
-   `issue_no: "NNN"` (zero-padded, quoted) `---`, then the body in markdown.
+   `---` `title: '...'` (plain-language headline, single-quoted) `dek: '...'`
+   (one-line dek, single-quoted) `date: YYYY-MM-DD` `issue_no: "NNN"`
+   (zero-padded, double-quoted) `---`, then the body in markdown.
+   **Always single-quote title and dek** — an unquoted colon+space inside a value
+   silently blanks the whole front matter (this cost us issue 001's masthead).
    The front page, RSS, and issue pages are generated automatically — never edit
    `index.md` to list an issue.
 
