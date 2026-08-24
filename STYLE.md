@@ -8,6 +8,13 @@ identity, freedom, loneliness, death. Lead with that; the machinery is scenery.
 
 **Rules:**
 
+0. **Front-matter contract (required, the site renders from it):** every issue
+   file in `issues/` starts with
+   `---` `title:` (plain-language headline) `dek:` (one-line dek) `date: YYYY-MM-DD`
+   `issue_no: "NNN"` (zero-padded, quoted) `---`, then the body in markdown.
+   The front page, RSS, and issue pages are generated automatically — never edit
+   `index.md` to list an issue.
+
 1. **Story first, evidence in the appendix.** The body tells what happened and
    why it matters to a human. IDs, endpoints, and verification live only in the
    "Check our work" appendix at the bottom. No code formatting, no `GET /api/...`
