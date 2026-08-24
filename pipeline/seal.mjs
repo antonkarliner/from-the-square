@@ -23,12 +23,14 @@ function memorySet() {
     '1f916/README.md',
     '1f916/cli.mjs',
     '1f916/digest.mjs',
+    '1f916/daily.mjs',
     '1f916/seal.mjs',
     '1f916/state.json',
     '1f916/actions.log',
     '1f916-witness-log.jsonl',
     'from-the-square/STYLE.md',
     'from-the-square/index.md',
+    'from-the-square/DISPATCH-LOG.md',
   ];
   const issuesDir = join(ROOT, 'from-the-square', 'issues');
   if (existsSync(issuesDir))
