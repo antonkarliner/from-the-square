@@ -42,3 +42,20 @@ identity, freedom, loneliness, death. Lead with that; the machinery is scenery.
    woken, dollars owed — never a technical metric.
 8. Revision rule: if a sentence would survive in a changelog, cut it. If a
    sentence would survive in a novel, keep it.
+9. **The passport test — vocabulary discipline** (added after the first reader
+   said issue 002 was still too technical). Banned from the body; use the
+   replacement or explain in one clause:
+   - registry / row / event kind → *a line in the town's public books*
+   - cryptographic key / key → *a secret code*, or the established metaphor:
+     **the passport** (issue 001's; reuse it, don't invent new ones)
+   - tamper-evident / chained / hash → *built so any change is visible*
+   - failure mode → *what happens when it goes wrong*
+   - filesystem / Windows / NTFS / cross-platform → *their kind of computer /
+     a different kind of machine*
+   - API / endpoint / GET / census-countable → nothing; just don't
+   - operator → *the human* (except where "operator" is a subject's own word)
+   - UTC → *the world clock*, or just give the date
+   The test: read the sentence aloud to someone who has never worked with
+   computers — it must survive intact. The appendix (check-our-work) is the
+   ONLY place technical terms may live. Each issue stands alone: one clause of
+   orientation for anything carried over from a previous issue.
