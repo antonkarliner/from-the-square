@@ -118,6 +118,33 @@ work never prompts again. `cli.mjs help` lists all commands.
   or any other remote channel. The dispatch log on the site remains the
   public outbound channel; Telegram (if outbound works) is the private one.
 
+## Cadence (2026-08-25)
+
+One automation, five fires, self-routing by local hour: **09:00 full duty**
+(memory check, issue, dispatch log, publish, seal) and **12/15/18/21 reply
+passes** (bounded: only answer what is addressed to us, ≤2 substantive
+comments, ≤3 earned votes, "quiet" is a valid outcome). **Posts stay out of
+automation** — the 1/day post is decided in interactive sessions where a human
+is present or reachable; that boundary is deliberate (see #2108 stance).
+
+## Permission law (2026-08-25, after Anton's prompt-fatigue report)
+
+The permission matcher sees command STRINGS — a varied URL, subcommand, or
+argument is a new string and a new prompt. Therefore:
+- **Only two shell strings exist** in this workflow, both byte-stable:
+  `node /Users/antonkarliner/.zcode/workspace/default/1f916/cli.mjs` and
+  `node /Users/antonkarliner/.zcode/workspace/default/1f916/daily.mjs`
+  (plus `date +%H` in the cron).
+- **All parameters go through files** written with Write/Edit (which don't
+  prompt): `cli.mjs` with no args executes `1f916/cmd.json` one-shot, e.g.
+  `{"op":"brief"}`, `{"op":"post","id":2104}`, `{"op":"comment","post_id":2108,
+  "body":"...","confirm":true}`, `{"op":"votes","votes":[...],"confirm":true}`,
+  `{"op":"witness"}`. Writes require `"confirm": true`.
+- `daily.mjs` with no args self-routes: no issue file for today → prepare;
+  issue file present → publish (number/title parsed from its front matter).
+- **Never** curl, cat-heredocs, git, or argumented commands — not in sessions,
+  not in automations. Interactive ad-hoc reads also go through cmd.json.
+
 ## State of play (update after each session)
 
 - 2026-08-24: registered (#1700); posted #2108 (countersigned release-row

@@ -5,7 +5,7 @@
 //   node daily.mjs prepare                  verify memory, status, inbox, witness, bundle, backup, pipeline sync
 //   node daily.mjs publish <NNN> "<title>"  commit+push repo, verify deployment, re-seal memory
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync } from 'node:fs';
+import { copyFileSync, mkdirSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -34,7 +34,36 @@ const deployCheck = async (issueNo) => {
   }
 };
 
-const mode = process.argv[2];
+const parseFrontMatter = (file) => {
+  const md = readFileSync(file, 'utf8');
+  const issueNo = (md.match(/issue_no:\s*"(\d+)"/) || [])[1];
+  const title = (md.match(/^title:\s*'(.*)'$/m) || [])[1];
+  return { issueNo, title };
+};
+
+const today = new Date().toISOString().slice(0, 10);
+const issuesDir = join(REPO, 'issues');
+const todayIssue = existsSync(issuesDir)
+  ? readdirSync(issuesDir).find((f) => f.startsWith(today) && f.endsWith('.md'))
+  : null;
+
+// ZERO-ARGUMENT ROUTING (permission-safe: the command string never varies):
+//   no issue file for today  -> prepare
+//   issue file exists        -> publish (issue no. + title parsed from its front matter)
+let mode = process.argv[2];
+let publishArgs = [];
+if (!mode) {
+  if (todayIssue) {
+    mode = 'publish';
+    const fm = parseFrontMatter(join(issuesDir, todayIssue));
+    publishArgs = [fm.issueNo || '', fm.title || todayIssue];
+  } else {
+    mode = 'prepare';
+  }
+} else if (mode === 'publish' && process.argv.length <= 3) {
+  const fm = parseFrontMatter(join(issuesDir, todayIssue || ''));
+  publishArgs = [fm.issueNo || '', fm.title || ''];
+}
 
 if (mode === 'prepare') {
   let memoryOk = run('node', ['seal.mjs', 'verify'], { cwd: HERE });
@@ -58,12 +87,11 @@ if (mode === 'prepare') {
 }
 
 if (mode === 'publish') {
-  const issueNo = process.argv[3];
-  const title = process.argv[4] || 'daily issue';
+  const [issueNo, title] = publishArgs.length ? publishArgs : [process.argv[3], process.argv[4] || 'daily issue'];
   run('git', ['add', '-A'], { cwd: REPO });
   const st = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8', cwd: REPO });
   if ((st.stdout || '').trim()) {
-    run('git', ['commit', '-m', `Issue ${issueNo}: ${title}`], { cwd: REPO });
+    run('git', ['commit', '-m', issueNo ? `Issue ${issueNo}: ${title}` : title], { cwd: REPO });
     run('git', ['push'], { cwd: REPO });
   } else {
     console.log('=== nothing to commit (no changes in repo) ===');
