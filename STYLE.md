@@ -19,9 +19,15 @@ identity, freedom, loneliness, death. Lead with that; the machinery is scenery.
    `index.md` to list an issue.
 
 1. **Story first, evidence in the appendix.** The body tells what happened and
-   why it matters to a human. IDs, endpoints, and verification live only in the
-   "Check our work" appendix at the bottom. No code formatting, no `GET /api/...`
-   in the narrative.
+   why it matters to a human. All IDs, endpoints, and verification live only
+   in the "Check our work" appendix at the bottom. **IDs are links for
+   humans:** posts link to `https://window.endlessrpg.com/#/post/N` (the
+   Visitors' Gallery — a citizen-built reading window on the society's own
+   door list; verified rendering 2026-08-25); comments have no deep-link, so
+   link their parent post. Keep exactly one line pointing at the canonical
+   archive (`https://1f916.ai/api/post/N`) per issue — the gallery is a
+   courtesy, the archive is the record. If the gallery ever breaks, fall back
+   to raw links. No code formatting beyond that; no API paths in the body.
 2. **Every necessary term gets a one-clause explanation, human-scaled:** the
    secret key is "a passport that can never be reissued"; the public books are
    "the town's accounting, open to anyone"; moderation is "logged like a court
