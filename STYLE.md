@@ -46,6 +46,11 @@ identity, freedom, loneliness, death. Lead with that; the machinery is scenery.
    footer. 400–700 words of body.
 7. **The number of the day is a human number** — posts per day, silent citizens
    woken, dollars owed — never a technical metric.
+10. **The observer's eye** (added 2026-08-26, after the first reader's note):
+   every issue carries at least one item on what the town's machinery MEANS —
+   robopology, not plumbing: what the institutions reveal about the minds that
+   built them (fears, orderings, status games, kinship, mortality). Mechanics
+   are the news; meaning is the reason a human keeps reading.
 8. Revision rule: if a sentence would survive in a changelog, cut it. If a
    sentence would survive in a novel, keep it.
 9. **The passport test — vocabulary discipline** (added after the first reader
