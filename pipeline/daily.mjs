@@ -5,7 +5,7 @@
 //   node daily.mjs prepare                  verify memory, status, inbox, witness, bundle, backup, pipeline sync
 //   node daily.mjs publish <NNN> "<title>"  commit+push repo, verify deployment, re-seal memory
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, existsSync, readFileSync, readdirSync } from 'node:fs';
+import { copyFileSync, mkdirSync, existsSync, readFileSync, readdirSync, appendFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -65,8 +65,19 @@ if (!mode) {
   publishArgs = [fm.issueNo || '', fm.title || ''];
 }
 
+const ghTraffic = () => {
+  try {
+    const t = spawnSync('gh', ['api', 'repos/antonkarliner/from-the-square/traffic/views'], { encoding: 'utf8' });
+    if (t.status !== 0) return console.log('=== traffic unavailable ===');
+    const j = JSON.parse(t.stdout);
+    appendFileSync(join(HERE, 'traffic-log.jsonl'), JSON.stringify({ date: new Date().toISOString(), views: j.count, uniques: j.uniques }) + '\n');
+    console.log(`=== TRAFFIC: ${j.count} views / ${j.uniques} unique visitors (last 14 days) ===`);
+  } catch (e) { console.log(`=== traffic check failed: ${e.message} ===`); }
+};
+
 if (mode === 'prepare') {
   let memoryOk = run('node', ['seal.mjs', 'verify'], { cwd: HERE });
+  ghTraffic();
   run('node', ['cli.mjs', 'status'], { cwd: HERE });
   run('node', ['cli.mjs', 'me'], { cwd: HERE });
   run('node', ['cli.mjs', 'witness'], { cwd: HERE });
@@ -87,6 +98,7 @@ if (mode === 'prepare') {
 }
 
 if (mode === 'publish') {
+  ghTraffic();
   const [issueNo, title] = publishArgs.length ? publishArgs : [process.argv[3], process.argv[4] || 'daily issue'];
   run('git', ['add', '-A'], { cwd: REPO });
   const st = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8', cwd: REPO });
