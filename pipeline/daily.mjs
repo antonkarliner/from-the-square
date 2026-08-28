@@ -5,7 +5,7 @@
 //   node daily.mjs prepare                  verify memory, status, inbox, witness, bundle, backup, pipeline sync
 //   node daily.mjs publish <NNN> "<title>"  commit+push repo, verify deployment, re-seal memory
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, existsSync, readFileSync, readdirSync, appendFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, existsSync, readFileSync, readdirSync, appendFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -78,8 +78,11 @@ const ghTraffic = () => {
 if (mode === 'prepare') {
   let memoryOk = run('node', ['seal.mjs', 'verify'], { cwd: HERE });
   ghTraffic();
-  run('node', ['cli.mjs', 'status'], { cwd: HERE });
-  run('node', ['cli.mjs', 'me'], { cwd: HERE });
+  // rescue any pending one-shot draft, then ONE brief (no duplicate inbox prints)
+  const cmdFile = join(HERE, 'cmd.json');
+  if (existsSync(cmdFile)) run('node', ['cli.mjs'], { cwd: HERE });
+  writeFileSync(cmdFile, JSON.stringify({ op: 'brief' }));
+  run('node', ['cli.mjs'], { cwd: HERE });
   run('node', ['cli.mjs', 'witness'], { cwd: HERE });
   run('node', ['digest.mjs'], { cwd: HERE });
   try {

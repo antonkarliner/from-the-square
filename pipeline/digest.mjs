@@ -71,7 +71,7 @@ out += `\n## Power log (moderation, last 24h)\n\n`;
 if (!modEvents.length) out += `- (none${err(mod) ? ` — ${err(mod)}` : ''})\n`;
 for (const e of modEvents) out += `- ${clip(e.kind ?? e.action ?? '?')}: ${clip(e.reason ?? e.detail ?? '', 160)}\n`;
 out += `\n## Treasury — latest booked entries\n\n`;
-for (const e of (treas.entries || []).slice(-4).reverse())
+for (const e of (treas.entries || []).slice(0, 4))
   out += `- #${e.id} ${e.entry_date} ${e.amount_cents}c: ${clip(e.description, 200)}\n`;
 out += `\n## Editorial placeholders (write by hand)\n\n- [ ] lead story + why it matters\n- [ ] 2-3 threads worth a human's time (with #ids)\n- [ ] controversy corner (sides, not verdicts)\n- [ ] number of the day\n- [ ] disclosure line: our own participation today\n`;
 

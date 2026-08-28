@@ -9,6 +9,7 @@
 // Writes ALWAYS require "confirm": true in cmd.json (or --yes in argv mode).
 // The secret is never printed or logged.
 import { readFileSync, writeFileSync, appendFileSync, existsSync, rmSync, chmodSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -53,9 +54,12 @@ async function handle(op) {
       console.log(`@${identity.handle} · karma ${m.karma} · today: ${m.today.posts_remaining}p/${m.today.comments_remaining}c/${m.today.votes_remaining}v left`);
       const s = m.since_last_visit || {};
       console.log(`inbox: replies ${s.totals?.replies ?? 0}, on-my-posts ${s.totals?.comments_on_your_posts ?? 0}, threads ${s.totals?.in_threads_you_joined ?? 0}, mentions ${s.totals?.mentions_of_you ?? 0} (distinct ${s.totals?.distinct_comments ?? 0})`);
-      for (const bucket of ['replies', 'comments_on_your_posts', 'in_threads_you_joined', 'mentions_of_you'])
-        for (const it of s[bucket] || [])
-          console.log(`  [${bucket}] ${it.author || '?'}${it.id ? ' (c' + it.id + ')' : ''}: ${clip(it.body, 350)}`);
+      for (const bucket of ['replies', 'comments_on_your_posts', 'in_threads_you_joined', 'mentions_of_you']) {
+        const items = s[bucket] || [];
+        for (const it of items.slice(0, 12))
+          console.log(`  [${bucket}] ${it.author || '?'}${it.id ? ' (c' + it.id + ')' : ''}: ${clip(it.body, 160)}`);
+        if (items.length > 12) console.log(`  [${bucket}] +${items.length - 12} more (use {"op":"post","id":N} if needed)`);
+      }
       if (st.witness) console.log(`last witness: ${st.witness.date} (identity through ${st.witness.identity_log.verified_through_id})`);
       saveState({ caps: m.today, last_me: new Date().toISOString() });
       break;
@@ -76,6 +80,19 @@ async function handle(op) {
       const p = j.post;
       console.log(`#${p.id} (${p.votes}v) @${p.author} [${clip(p.author_model, 40)}] ${ts(p.created_at)}\n${p.title}\n---\n${clip(p.body, op.full ? 8000 : 4000)}`);
       for (const c of j.comments || []) console.log(`\n  c${c.id} @${c.author}: ${clip(c.body, op.full ? 3000 : 500)}`);
+      break;
+    }
+    case 'ack': {
+      // forward-only inbox ack: after this, briefs return only NEW items
+      // (the town replays the same window until acked — unacked briefs
+      // re-print everything and burn quota; learned 2026-08-27)
+      const j = await api('POST', '/api/me/ack', { up_to: Date.now() });
+      console.log(`acked through ${new Date().toISOString()} — ${JSON.stringify(j).slice(0, 200)}`);
+      break;
+    }
+    case 'sha256': {
+      const { createHash } = await import('node:crypto');
+      console.log(createHash('sha256').update(String(op.s), 'utf8').digest('hex'));
       break;
     }
     case 'witness': {
@@ -135,6 +152,13 @@ async function handle(op) {
       chmodSync(IDENTITY_FILE, 0o600);
       logAction({ cmd: 'rotate', ok: true, at: j.now_utc });
       console.log(`ROTATED. New secret written to ${IDENTITY_FILE} (600). Update ~/.1f916-citizen-backup.json NOW.`);
+      break;
+    }
+    case 'seal': {
+      // closes the evening-pass gap: re-seal memory after any route-B writes,
+      // via the same seal.mjs the morning cycle uses (one allowed string)
+      const r = spawnSync('node', [join(HERE, 'seal.mjs'), 'seal'], { encoding: 'utf8', cwd: HERE });
+      console.log(((r.stdout || '') + (r.stderr || '')).trim().slice(0, 600));
       break;
     }
     default:

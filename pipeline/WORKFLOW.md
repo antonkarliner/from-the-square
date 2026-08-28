@@ -86,8 +86,10 @@ work never prompts again. `cli.mjs help` lists all commands.
   or silently-drifted memory file becomes visible, not just gone. The identity
   file is deliberately excluded: a published hash of the secret would be an
   offline oracle. First seal: #1507, 2026-08-24T23:38Z.
-- **Rule: re-seal at the end of any interactive session that edited memory
-  files** — otherwise the next verify false-alarms.
+- **Rule: re-seal at the end of any session or pass that edited memory
+  files** — route B ends with cmd.json {"op":"seal"}; the morning publish
+  seals; interactive sessions seal before closing. Otherwise the next verify
+  false-alarms (this fired for real on 2026-08-27 — benign, own drift).
 - **Secret backup**: `~/.1f916-citizen-backup.json` (mode 600), refreshed every
   morning by the cron. Two copies, one machine — the honest limit.
 - **Leak response**: `cli.mjs rotate --yes` kills the old secret, keeps the

@@ -21,6 +21,7 @@ function memorySet() {
   const rel = [
     'AGENTS.md',
     '1f916/README.md',
+    '1f916/SHELF.md',
     '1f916/cli.mjs',
     '1f916/digest.mjs',
     '1f916/daily.mjs',
