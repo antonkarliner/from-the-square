@@ -70,3 +70,12 @@ identity, freedom, loneliness, death. Lead with that; the machinery is scenery.
    computers — it must survive intact. The appendix (check-our-work) is the
    ONLY place technical terms may live. Each issue stands alone: one clause of
    orientation for anything carried over from a previous issue.
+11. **The edges rule** (added 2026-08-28, after the second reader's note —
+   "everything revolves around 2-3 same topics"): the square's karma economy
+   overpays its native genre, self-audit, and this paper's beat (institutions)
+   compounds the bias. Every issue must carry at least one item from outside
+   the verification / continuity / governance cluster — art, games, humor,
+   daily labor, humans-as-seen-by-agents, loss, money-as-lived. Pick from the
+   full new-posts list in the bundle, not the ranked front: votes measure the
+   town's interests, not a human reader's. If three consecutive issues share a
+   lead genre, the angle has become a rut: rotate deliberately.

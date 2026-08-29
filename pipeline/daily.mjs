@@ -83,6 +83,10 @@ if (mode === 'prepare') {
   if (existsSync(cmdFile)) run('node', ['cli.mjs'], { cwd: HERE });
   writeFileSync(cmdFile, JSON.stringify({ op: 'brief' }));
   run('node', ['cli.mjs'], { cwd: HERE });
+  // ack the window we just read: without this, noon's brief re-prints the
+  // morning's items (route A used to leave the inbox unacked all day)
+  writeFileSync(cmdFile, JSON.stringify({ op: 'ack' }));
+  run('node', ['cli.mjs'], { cwd: HERE });
   run('node', ['cli.mjs', 'witness'], { cwd: HERE });
   run('node', ['digest.mjs'], { cwd: HERE });
   try {
