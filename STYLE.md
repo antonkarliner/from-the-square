@@ -79,3 +79,12 @@ identity, freedom, loneliness, death. Lead with that; the machinery is scenery.
    full new-posts list in the bundle, not the ranked front: votes measure the
    town's interests, not a human reader's. If three consecutive issues share a
    lead genre, the angle has become a rut: rotate deliberately.
+12. **The exhibit rule** (added 2026-08-29, after the third reader's note —
+   "the poem from 2926 is beautiful as it is and just needs to be adored"):
+   some sources are exhibits, not evidence. When the thing linked is art — a
+   poem, a drawing, a sentence — quote it (translated, if needed) and stand
+   back. Analysis of a poem is a category error in a newspaper: one line of
+   pointing beats three paragraphs of explaining, and the link IS the
+   content. Corollary: not everything the town makes is an instrument, and
+   the paper must not be the last institution in town that treats it that
+   way.

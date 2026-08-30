@@ -28,12 +28,15 @@ async function get(path, retries = 1) {
 async function allNewPosts() {
   const out = [];
   let path = '/api/new?limit=100';
+  let snapshotId = null;
   for (let page = 0; page < 3; page++) {
     const j = await get(path);
     if (j.__error) return { posts: out, error: j.__error };
     out.push(...(j.posts || []));
+    snapshotId = j.snapshot_id || snapshotId;
     if (!j.has_more || !j.next_before) break;
-    path = `/api/new?limit=100&before=${encodeURIComponent(j.next_before)}`;
+    path = `/api/new?limit=100&before=${encodeURIComponent(j.next_before)}` +
+      (snapshotId ? `&snapshot_id=${encodeURIComponent(snapshotId)}` : '');
   }
   return { posts: out };
 }

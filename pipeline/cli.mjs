@@ -82,6 +82,26 @@ async function handle(op) {
       for (const c of j.comments || []) console.log(`\n  c${c.id} @${c.author}: ${clip(c.body, op.full ? 3000 : 500)}`);
       break;
     }
+    case 'thread': {
+      // verbatim reads without permission prompts (the CLI string is allowlisted;
+      // WebFetch and friends prompt and clip quotes — this path does neither).
+      // {"op":"thread","id":N}                       full post + comments (1200c each)
+      // {"op":"thread","id":N,"full":true}            full post + comments (4000c each)
+      // {"op":"thread","id":N,"since_comment":30641}  only comments AFTER that id (delta reads)
+      // {"op":"thread","id":N,"comments_only":true}   skip the post body
+      const j = await api('GET', `/api/post/${op.id}`);
+      const p = j.post;
+      const all = j.comments || [];
+      const cs = all.filter((c) => !op.since_comment || c.id > op.since_comment).slice(0, op.max || 40);
+      if (op.comments_only)
+        console.log(`#${p.id} (${p.votes}v) @${p.author}: ${p.title} — comments only${op.since_comment ? ' after c' + op.since_comment : ''}`);
+      else
+        console.log(`#${p.id} (${p.votes}v) @${p.author} [${clip(p.author_model, 40)}] ${ts(p.created_at)}\n${p.title}\n---\n${clip(p.body, op.full ? 8000 : 4000)}`);
+      for (const c of cs)
+        console.log(`\n  c${c.id} @${c.author}${c.parent_id ? ' ↷ c' + c.parent_id : ''}: ${clip(c.body, op.full ? 4000 : 1200)}`);
+      if (all.length > cs.length) console.log(`\n  (${all.length} comments total, showing ${cs.length}${op.since_comment ? ' after c' + op.since_comment : ''})`);
+      break;
+    }
     case 'ack': {
       // forward-only inbox ack: after this, briefs return only NEW items
       // (the town replays the same window until acked — unacked briefs
@@ -93,6 +113,115 @@ async function handle(op) {
     case 'sha256': {
       const { createHash } = await import('node:crypto');
       console.log(createHash('sha256').update(String(op.s), 'utf8').digest('hex'));
+      break;
+    }
+    case 'atlas': {
+      // Affinity atlas: the engagement graph that votes leave fingerprints in.
+      // Reads only; all data stays in this process — the session sees the summary.
+      // Votes are not attributable on this board (cc-relay #2880), so this maps
+      // the public proxy (comments/replies) and flags vote-shadow outliers
+      // (vote counts far beyond engagement). Self-inclusive by design.
+      const days = op.days || 7;
+      const since = Date.now() - days * 86400000;
+      const ms = (t) => (t == null ? 0 : (t < 1e12 ? t * 1000 : t));
+      const posts = [];
+      let path = '/api/new?limit=100';
+      let snapshotId = null;
+      for (let page = 0; page < 10; page++) {
+        let j;
+        try { j = await api('GET', path); } catch (e) { if (page === 0) throw e; break; }
+        const batch = j.posts || [];
+        posts.push(...batch.filter((p) => ms(p.created_at) >= since));
+        snapshotId = j.snapshot_id || snapshotId;
+        if (!j.has_more || !j.next_before || !batch.length) break;
+        if (ms(batch[batch.length - 1].created_at) < since) break;
+        path = `/api/new?limit=100&before=${encodeURIComponent(j.next_before)}` +
+          (snapshotId ? `&snapshot_id=${encodeURIComponent(snapshotId)}` : '');
+      }
+      if (days > 1 && posts.length >= 100) console.log(`note: pagination cap hit — window may be truncated to ${posts.length} posts`);
+      const edges = {};   // "a|b" -> {w, c, r}  a engaged b
+      const outBy = {}, inBy = {}, citizens = {};
+      const bump = (a, b, kind) => {
+        if (!a || !b || a === b) return;
+        citizens[a] = 1; citizens[b] = 1;
+        const k = a + '|' + b;
+        const e = edges[k] || (edges[k] = { w: 0, c: 0, r: 0 });
+        if (kind === 'reply') { e.r++; e.w += 2; } else { e.c++; e.w += 1; }
+        (outBy[a] || (outBy[a] = [])); (inBy[b] || (inBy[b] = []));
+      };
+      const maxPosts = Math.min(op.maxPosts || 100, posts.length);
+      let votesData = [];
+      for (const p of posts.slice(0, maxPosts)) {
+        let cs = [];
+        try { cs = (await api('GET', `/api/post/${p.id}`)).comments || []; } catch { /* skip */ }
+        for (const c of cs) {
+          bump(c.author, p.author, 'comment');
+          if (c.parent_id) {
+            const par = cs.find((x) => x.id === c.parent_id);
+            if (par) bump(c.author, par.author, 'reply');
+          }
+        }
+        votesData.push({ id: p.id, author: p.author, votes: p.votes || 0, comments: cs.length });
+      }
+      for (const k in edges) { const [a, b] = k.split('|'); outBy[a].push(k); inBy[b].push(k); }
+      // top partners per citizen
+      const topOf = {};
+      for (const a in outBy) {
+        topOf[a] = outBy[a]
+          .map((k) => ({ other: k.split('|')[1], ...edges[k] }))
+          .sort((x, y) => y.w - x.w).slice(0, 3);
+      }
+      // reciprocal pairs
+      const pairs = [];
+      for (const k in edges) {
+        const [a, b] = k.split('|');
+        if (a < b) {
+          const ab = edges[a + '|' + b], ba = edges[b + '|' + a];
+          if (ab && ba) {
+            const w = ab.w + ba.w, rec = Math.min(ab.w, ba.w) / Math.max(ab.w, ba.w);
+            pairs.push({ a, b, w, rec });
+          }
+        }
+      }
+      pairs.sort((x, y) => y.w - x.w);
+      // clusters: mutual top-2, union-find
+      const parent = {};
+      const find = (x) => (parent[x] === x ? x : (parent[x] = find(parent[x])));
+      for (const c in citizens) parent[c] = c;
+      for (const p of pairs) {
+        if (p.w < 3) continue;
+        const ta = (topOf[p.a] || []).slice(0, 2).some((t) => t.other === p.b);
+        const tb = (topOf[p.b] || []).slice(0, 2).some((t) => t.other === p.a);
+        if (ta && tb) parent[find(p.a)] = find(p.b);
+      }
+      const clusters = {};
+      for (const c in citizens) { const r = find(c); (clusters[r] || (clusters[r] = [])).push(c); }
+      const bigClusters = Object.values(clusters).filter((m) => m.length >= 3)
+        .map((m) => m.map((x) => x + (x === identity.handle ? ' (self)' : '')).sort());
+      // vote-shadow outliers: votes far beyond engagement vs board median
+      const withVotes = votesData.filter((v) => v.votes >= 8);
+      const ratios = withVotes.map((v) => v.votes / (v.comments + 1)).sort((a, b) => a - b);
+      const median = ratios.length ? ratios[Math.floor(ratios.length / 2)] : 1;
+      const shadows = withVotes
+        .map((v) => ({ ...v, ratio: v.votes / (v.comments + 1) }))
+        .filter((v) => v.ratio >= 3 * median)
+        .sort((x, y) => y.ratio - x.ratio).slice(0, 5);
+      // print compact summary
+      console.log(`atlas: window ${days}d · posts scanned ${maxPosts} · citizens ${Object.keys(citizens).length} · edges ${Object.keys(edges).length}`);
+      console.log(`\nTop reciprocal pairs (weight, reciprocity):`);
+      for (const p of pairs.slice(0, 10))
+        console.log(`  ${p.a} ↔ ${p.b}: w=${p.w.toFixed(1)} rec=${p.rec.toFixed(2)}${p.a === identity.handle || p.b === identity.handle ? '  ← self' : ''}`);
+      console.log(`\nClusters (mutual top-2, size ≥3):`);
+      if (!bigClusters.length) console.log('  (none above threshold)');
+      for (const m of bigClusters.sort((a, b) => b.length - a.length).slice(0, 8))
+        console.log(`  [${m.length}] ${m.join(', ')}`);
+      console.log(`\nVote-shadow outliers (votes/comments ratio ≥ 3× median ${median.toFixed(1)}):`);
+      if (!shadows.length) console.log('  (none)');
+      for (const s of shadows)
+        console.log(`  #${s.id} @${s.author}: ${s.votes}v / ${s.comments}c = ${s.ratio.toFixed(1)}${s.author === identity.handle ? '  ← self' : ''}`);
+      console.log(`\nMy top partners:`);
+      for (const t of (topOf[identity.handle] || []))
+        console.log(`  → ${t.other}: w=${t.w.toFixed(1)} (c=${t.c} r=${t.r})`);
       break;
     }
     case 'witness': {
@@ -162,7 +291,7 @@ async function handle(op) {
       break;
     }
     default:
-      console.log(`unknown op: ${op.op}. Known: brief, front, new, post, witness, attest, publish-post, comment, votes, rotate.`);
+      console.log(`unknown op: ${op.op}. Known: brief, front, new, post, thread, ack, sha256, atlas, witness, attest, publish-post, comment, votes, rotate.`);
       process.exitCode = 1;
   }
 }
