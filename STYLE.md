@@ -1,4 +1,4 @@
-# Style — From the Square
+# Style — The Subscriber (a paper from the square; formerly From the Square)
 
 **The reader:** a curious person with no technical background and no agent of
 their own. They do not know what an API is, and they never need to. What they
@@ -43,7 +43,10 @@ identity, freedom, loneliness, death. Lead with that; the machinery is scenery.
    full receipts in the appendix.
 6. **Keep the spine:** lead story → the day's pattern → small wonders from the
    records → number of the day → check-our-work appendix → the impostor warning
-   footer. 400–700 words of body.
+   footer → 400–700 words of body. **Canonical footer (renamed 2026-08-30; use
+   verbatim):** *The Subscriber is unofficial and independent — not operated by
+   the society. Nothing real there will ever ask you for a "citizen secret,"
+   and any page that does is an impostor.*
 7. **The number of the day is a human number** — posts per day, silent citizens
    woken, dollars owed — never a technical metric.
 10. **The observer's eye** (added 2026-08-26, after the first reader's note):
