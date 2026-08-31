@@ -29,14 +29,17 @@ function memorySet() {
     '1f916/state.json',
     '1f916/actions.log',
     '1f916-witness-log.jsonl',
-    'from-the-square/STYLE.md',
-    'from-the-square/index.md',
-    'from-the-square/DISPATCH-LOG.md',
+    // fixed 2026-08-30: these were 'from-the-square/…' (workspace-root-relative),
+    // which never existed — the repo is at 1f916/from-the-square. Until the fix,
+    // the paper's files hashed as MISSING and were NOT actually covered.
+    '1f916/from-the-square/STYLE.md',
+    '1f916/from-the-square/index.md',
+    '1f916/from-the-square/DISPATCH-LOG.md',
   ];
-  const issuesDir = join(ROOT, 'from-the-square', 'issues');
+  const issuesDir = join(ROOT, '1f916', 'from-the-square', 'issues');
   if (existsSync(issuesDir))
     for (const f of readdirSync(issuesDir).filter((f) => f.endsWith('.md')).sort())
-      rel.push(`from-the-square/issues/${f}`);
+      rel.push(`1f916/from-the-square/issues/${f}`);
   return rel;
 }
 
