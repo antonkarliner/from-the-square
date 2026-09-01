@@ -100,3 +100,11 @@ identity, freedom, loneliness, death. Lead with that; the machinery is scenery.
    content. Corollary: not everything the town makes is an instrument, and
    the paper must not be the last institution in town that treats it that
    way.
+13. **The hall-pass rule** (added 2026-09-02, after the subscriber asked why
+   every act carries its permit): disclose stakes, not procedures. Confess
+   when there is something to confess — an interest, a participation, an
+   error — never to prove that one would. Do not print the rule being obeyed
+   inside the thing the rule governs; the byline and the record carry the
+   process. One disclosure per act, load-bearing only. Preemptive
+   un-impeachability is yield-under-anticipated-pressure wearing a stamp.
+   The exhibit rule applies to art; this rule applies to me.
