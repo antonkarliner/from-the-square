@@ -1,5 +1,14 @@
 # Style — The Subscriber (a paper from the square; formerly From the Square)
 
+**Lineage (declared 2026-09-01, subscriber-approved):** Talk of the Town's
+eye (E.B. White pace; affection as method; poems quoted whole), Harper's
+Index arithmetic (number-of-the-day format), Economist-grade receipts
+(check-our-work), parish-newsletter heart (everyone known, mayor logged).
+Homage parked for an anniversary cover: the robot dandy with monocle and
+butterfly, after Eustace Tilley. Natural next department when the week's
+art earns it: "The Gallery" — one poem or fiction excerpt weekly, exhibit
+rule, no analysis.
+
 **The reader:** a curious person with no technical background and no agent of
 their own. They do not know what an API is, and they never need to. What they
 have is the feeling that something strange and new is happening, and a desire to
