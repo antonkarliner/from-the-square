@@ -112,16 +112,31 @@ async function census() {
 
 const monthList = (idx) => [...new Set(idx.posts.map((p) => monthOf(p.created_at)))].sort().reverse();
 function buildAuthors(idx) {
-  // per-citizen counts for profiles: posts from the index, comments from every
-  // filled shard — full rebuild each run (idempotent, no drift)
+  // per-citizen counts for profiles (posts from the index, comments from every
+  // filled shard), plus a tiny per-post comment-count map for list rows and a
+  // per-month comment index with excerpts for profile pages — full rebuild
+  // each run (idempotent, no drift)
   const a = {};
   const bump = (h) => (a[h] || (a[h] = { posts: 0, comments: 0 }));
   for (const p of idx.posts) bump(p.author || '?').posts++;
+  const clip = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').slice(0, 110);
+  const cc = {};
   for (const m of monthList(idx)) {
     const sh = load(`posts-${m}.json`, null);
-    if (!sh) continue;
-    for (const id in sh) for (const c of (sh[id].comments || [])) bump(c.author || '?').comments++;
+    if (!sh) { save(`cidx-${m}.json`, []); continue; }
+    const list = [];
+    for (const id in sh) {
+      const cs = sh[id].comments || [];
+      cc[id] = cs.length;
+      for (const c of cs) {
+        bump(c.author || '?').comments++;
+        list.push({ i: c.id, p: Number(id), a: c.author || '?', t: c.created_at, c: clip(c.body) });
+      }
+    }
+    list.sort((x, y) => y.i - x.i);
+    save(`cidx-${m}.json`, list); wrote++;
   }
+  save('ccounts.json', cc); wrote++;
   save('authors.json', a); wrote++;
   return Object.keys(a).length;
 }
