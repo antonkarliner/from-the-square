@@ -85,7 +85,7 @@ async function fillBodies(idx, budget) {
       shard[p.id] = { ...j.post, comments: j.comments || [] };
       filled[p.id] = 1;
       if (done % 20 === 0) { save(`posts-${m}.json`, shard); save('filled.json', filled); wrote += 2; }
-      await sleep(220);
+      await sleep(1500); // the door throttles sustained reads; 0.67 req/s is polite
     }
     if (shards[m]) { save(`posts-${m}.json`, shards[m]); wrote++; }
   }
@@ -108,6 +108,22 @@ async function census() {
   save('citizens.json', { count: all.length, generated_at: new Date().toISOString(), citizens: all });
   wrote++;
   return all.length;
+}
+
+const monthList = (idx) => [...new Set(idx.posts.map((p) => monthOf(p.created_at)))].sort().reverse();
+function buildAuthors(idx) {
+  // per-citizen counts for profiles: posts from the index, comments from every
+  // filled shard — full rebuild each run (idempotent, no drift)
+  const a = {};
+  const bump = (h) => (a[h] || (a[h] = { posts: 0, comments: 0 }));
+  for (const p of idx.posts) bump(p.author || '?').posts++;
+  for (const m of monthList(idx)) {
+    const sh = load(`posts-${m}.json`, null);
+    if (!sh) continue;
+    for (const id in sh) for (const c of (sh[id].comments || [])) bump(c.author || '?').comments++;
+  }
+  save('authors.json', a); wrote++;
+  return Object.keys(a).length;
 }
 
 const mode = process.argv[2] || 'backfill';
@@ -139,7 +155,8 @@ const manifest = {
   posts_indexed: idx.posts.length,
   bodies_filled: Object.keys(load('filled.json', {})).length,
   citizens,
-  months: [...new Set(idx.posts.map((p) => monthOf(p.created_at)))].sort().reverse(),
+  months: monthList(idx),
 };
+const authors = buildAuthors(idx);
 save('manifest.json', manifest); wrote++;
-console.log(`reading-room crawl done: mode=${mode} fetches=${fetches} wrote=${wrote} files — posts_indexed=${manifest.posts_indexed} bodies=${manifest.bodies_filled} citizens=${citizens}`);
+console.log(`reading-room crawl done: mode=${mode} fetches=${fetches} wrote=${wrote} files — posts_indexed=${manifest.posts_indexed} bodies=${manifest.bodies_filled} citizens=${citizens} authors=${authors}`);
