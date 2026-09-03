@@ -141,22 +141,27 @@ function buildAuthors(idx) {
   return Object.keys(a).length;
 }
 
-async function applyChanges(budget) {
+async function applyChanges(idx, budget) {
   // late comments on already-archived posts never re-entered the mirror
   // (fillBodies skips filled posts). /api/changes?since=<ms> is the lossless
   // stream; rows carry full comment bodies, so we merge them straight into
-  // shards. Bootstrap: sweep the last 24h once, then advance the cursor.
+  // shards. NOTE: a late comment lands in its POST's month shard, which can
+  // differ from the comment's own month. Bootstrap: sweep the last 24h once,
+  // then advance the cursor.
   const st = load('changes.json', null) || {};
   let since = st.since || Date.now() - 24 * 3600000;
+  const postMonth = {};
+  for (const p of idx.posts) postMonth[p.id] = monthOf(p.created_at);
   const memo = {}; // month -> shard (mutated, saved at end)
   let added = 0, pages = 0;
   for (let page = 0; fetches < budget; page++) {
     let j; try { j = await get('/api/changes?since=' + since); } catch (e) { console.log('changes stop:', e.message); break; }
     fetches++; pages++;
     for (const c of j.comments || []) {
-      const m = monthOf(c.created_at);
+      const m = postMonth[c.post_id];
+      if (!m) continue; // post unknown to the index yet — the new-post path carries it
       const shard = (memo[m] = memo[m] || load(`posts-${m}.json`, null));
-      if (!shard || !shard[c.post_id]) continue; // post not archived yet — the new-post path carries it
+      if (!shard || !shard[c.post_id]) continue;
       const post = shard[c.post_id];
       post.comments = post.comments || [];
       if (post.comments.some((x) => x.id === c.id)) continue; // dedupe
@@ -211,7 +216,7 @@ const budget = mode === 'refresh' ? 40 : Math.min(Number(process.argv[3] || 220)
 mkdirSync(DATA, { recursive: true });
 const idx = await walkIndex(budget);
 const bodies = await fillBodies(idx, budget);
-const changed = await applyChanges(budget);
+const changed = await applyChanges(idx, budget);
 const citizens = await census();
 const manifest = {
   generated_at: new Date().toISOString(),
