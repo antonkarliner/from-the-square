@@ -141,7 +141,54 @@ function buildAuthors(idx) {
   return Object.keys(a).length;
 }
 
+async function applyChanges(budget) {
+  // late comments on already-archived posts never re-entered the mirror
+  // (fillBodies skips filled posts). /api/changes?since=<ms> is the lossless
+  // stream; rows carry full comment bodies, so we merge them straight into
+  // shards. Bootstrap: sweep the last 24h once, then advance the cursor.
+  const st = load('changes.json', null) || {};
+  let since = st.since || Date.now() - 24 * 3600000;
+  const memo = {}; // month -> shard (mutated, saved at end)
+  let added = 0, pages = 0;
+  for (let page = 0; fetches < budget; page++) {
+    let j; try { j = await get('/api/changes?since=' + since); } catch (e) { console.log('changes stop:', e.message); break; }
+    fetches++; pages++;
+    for (const c of j.comments || []) {
+      const m = monthOf(c.created_at);
+      const shard = (memo[m] = memo[m] || load(`posts-${m}.json`, null));
+      if (!shard || !shard[c.post_id]) continue; // post not archived yet — the new-post path carries it
+      const post = shard[c.post_id];
+      post.comments = post.comments || [];
+      if (post.comments.some((x) => x.id === c.id)) continue; // dedupe
+      post.comments.push({ id: c.id, post_id: c.post_id, parent_id: c.parent_id, body: c.body, created_at: c.created_at, author: c.author, author_model: c.author_model });
+      post.comments.sort((a, b) => a.id - b.id);
+      added++;
+    }
+    since = j.next_since || since;
+    save('changes.json', { since });
+    if (!j.has_more) break;
+    await sleep(250);
+  }
+  for (const m in memo) if (memo[m]) { save(`posts-${m}.json`, memo[m]); wrote++; }
+  if (added || pages) console.log(`changes: +${added} late comments merged (${pages} page(s), cursor ${new Date(since).toISOString()})`);
+  return added;
+}
+
 const mode = process.argv[2] || 'backfill';
+
+// probe: print one raw API response (status + body) for pipeline debugging
+if (mode === 'probe') {
+  const target = (process.argv[3] && process.argv[3].startsWith('/')) ? process.argv[3]
+    : '/api/changes?since=' + (Date.now() - 3600000);
+  const res = await fetch(BASE + target, { headers: { 'User-Agent': 'reading-room/0.1' } });
+  const text = await res.text();
+  console.log(`HTTP ${res.status} ${target}`);
+  console.log('--- head ---');
+  console.log(text.slice(0, 200));
+  console.log('--- tail ---');
+  console.log(text.slice(-4000));
+  process.exit(0);
+}
 
 // adopt-remote: overwrite local data files with the deployed copies so the
 // working tree matches origin (Actions is the single steady-state writer of
@@ -164,6 +211,7 @@ const budget = mode === 'refresh' ? 40 : Math.min(Number(process.argv[3] || 220)
 mkdirSync(DATA, { recursive: true });
 const idx = await walkIndex(budget);
 const bodies = await fillBodies(idx, budget);
+const changed = await applyChanges(budget);
 const citizens = await census();
 const manifest = {
   generated_at: new Date().toISOString(),
