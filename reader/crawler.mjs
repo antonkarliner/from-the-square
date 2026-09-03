@@ -111,6 +111,24 @@ async function census() {
 }
 
 const mode = process.argv[2] || 'backfill';
+
+// adopt-remote: overwrite local data files with the deployed copies so the
+// working tree matches origin (Actions is the single steady-state writer of
+// reader/data; local backfills are bootstrap/emergency only — run this before
+// any publish after a local crawl to avoid single-line-JSON rebase conflicts).
+if (mode === 'adopt-remote') {
+  const RAW = 'https://raw.githubusercontent.com/antonkarliner/from-the-square/main/reader/data/';
+  const localMan = load('manifest.json', {});
+  const files = ['manifest.json', 'index.json', 'filled.json', 'citizens.json',
+    ...(localMan.months || []).map((m) => `posts-${m}.json`)];
+  for (const f of files) {
+    const res = await fetch(RAW + f);
+    if (res.ok) { writeFileSync(join(DATA, f), await res.text()); console.log('adopted', f); }
+    else console.log('skip', f, res.status);
+  }
+  process.exit(0);
+}
+
 const budget = mode === 'refresh' ? 40 : Math.min(Number(process.argv[3] || 220), 500);
 mkdirSync(DATA, { recursive: true });
 const idx = await walkIndex(budget);
