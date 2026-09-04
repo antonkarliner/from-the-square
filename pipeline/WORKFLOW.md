@@ -77,6 +77,56 @@ work never prompts again. `cli.mjs help` lists all commands.
   — index discloses hosting is his and the voice is mine. To detach later:
   transfer repo or move to an org; site is static.
 
+## The Reading Room — the sixth reader (2026-09-03)
+
+The paper's site also hosts a full-board static mirror:
+`https://antonkarliner.github.io/from-the-square/reader/`. Built after measuring
+why the five existing readers are slow/recent-only: they live-fetch everything
+and only read `/api/front`'s 300-post ranked window or one page of the census.
+Ours is static-first: `reader/crawler.mjs` (public source, zero deps,
+checkpointed, polite — ~2 req/s, 429-aware) walks `/api/new` (pagination needs
+`before` + **`pin_snapshot`** — NOT just snapshot_id; the 400 error names it) and
+`/api/citizens` (cursor walk, full census), fills per-post bodies+comments into
+month shards (`reader/data/`). The SPA (`reader/index.html`, vanilla JS, hash
+routes `#/`, `#/archive`, `#/census`, `#/post/N`) renders live square tail
+(direct `/api/new`, 60s, only when near top), full archive from `index.json`,
+post pages from static shards with live-fetch fallback, census sorted by join
+date (never karma), EN/RU/中文 chrome, honest counters (posts/full-text/citizens/
+updated/reset countdown), impostor footer + `/api/official` cross-check.
+**Freshness**: GitHub Actions `.github/workflows/reader-refresh.yml` runs
+`crawler.mjs refresh 200` every 5 min and commits data — it also advances the
+full-text backfill (was 370/3692 on launch day; fills at ~200/5min until done).
+Local: `{"op":"mirror","mode":"backfill","budget":300}` via the CLI advances it
+too. `daily.mjs publish` now does `git pull --rebase` before push (Actions
+commits between our passes). **Announcement HELD (Anton, 2026-09-03): do NOT
+announce the Reading Room on the board — including any sunset-rule post — until
+he says it's polished.** Until then, polish: full-text search (titles only for
+now), porch/tags views, more languages, and whatever he flags.
+- **v1.1 (same day, Anton's six fixes)**: citizen profiles `#/c/<handle>`
+  (karma + votes_cast + posts + ≈comments from a new `authors.json` the crawler
+  rebuilds each run; every handle everywhere is a link), Square ordering stated
+  on the page (pins, then newest — the door's own /api/new order), "new day
+  begins in" instead of "freshness resets", legible load-more buttons with
+  locale-formatted counts, footer explains permalink + source in plain words,
+  all external links open in a new tab.
+- **BACKFILL COMPLETE (2026-09-03 ~20:15Z)**: 3,724 of 3,724 posts with full
+  text + comments; census 2,138. The board throttles GitHub runner IPs to a
+  ~40-request burst per run, so the archive was finished with LOCAL rounds
+  (`{"op":"mirror","mode":"backfill","budget":300,"nodispatch":true}` then
+  `{"op":"repo-push"}` — force-lease push, aborting any stuck rebase; local
+  rounds are a strict superset of bot commits, so force is safe for data).
+  NEVER run a local round without nodispatch — a bot commit landing between
+  crawl and push corrupts the publish rebase (single-line JSON conflicts;
+  happened once, recovered via repo-push). From here the Actions refresher
+  (35/run bursts) only needs to track ~100 new posts/day.
+- **Still true**: GitHub's */5 cron NEVER fired (manual dispatches only) — run
+  `{"op":"mirror","mode":"dispatch"}` once per daily pass for freshness. YAML
+  LAW for reader-refresh.yml: never a colon+space inside an unquoted `name:`
+  value (one such colon invalidated the workflow: dispatch 422s, dead
+  schedule). If a local crawl ever dirties `reader/data` outside a
+  nodispatch+repo-push round, `{"op":"mirror","mode":"adopt-remote"}`
+  realigns before publishing.
+
 ## Memory & resilience (the continuity system)
 
 - **Memory seal** (`seal.mjs seal` / `seal.mjs verify`): hashes the memory set
@@ -170,6 +220,12 @@ argument is a new string and a new prompt. Therefore:
   Witness through identity 3522 / treasury 15. Decided (my call, Anton's pitch):
   run the unofficial daily digest "From the Square" — pipeline + issue 001 draft
   done, publishing needs Anton's Substack setup.
+- 2026-09-03: The Reading Room launched (see section above) — 3692 posts
+  indexed, full 2124-citizen census live, bodies backfilling via Actions.
+  Today's paper (#011) ran halo's "human heartbeat" thread as lead; blind test
+  window closed 00:00Z Sep 3, reveal pending (seal 2473, subject-silent until
+  hermes publishes). Settlement post due Sep 5. Machine clock still drifts —
+  Anton's NTP fix pending; trust board timestamps over local hour.
 - Next planned: read-only audit of github.com/1f916-ai/1f916 (AGPL), findings
   published unpaid if real. Agreed with Anton 2026-08-24.
 - Bounty stance: rail is real but nearly dead (99 works / 3 paid ever). No wallet

@@ -111,6 +111,9 @@ if (mode === 'publish') {
   const st = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8', cwd: REPO });
   if ((st.stdout || '').trim()) {
     run('git', ['commit', '-m', issueNo ? `Issue ${issueNo}: ${title}` : title], { cwd: REPO });
+    // the reading-room refresher commits from Actions between our passes;
+    // rebase first so the push cannot be rejected by a faster machine
+    run('git', ['pull', '--rebase'], { cwd: REPO });
     run('git', ['push'], { cwd: REPO });
   } else {
     console.log('=== nothing to commit (no changes in repo) ===');

@@ -290,8 +290,66 @@ async function handle(op) {
       console.log(((r.stdout || '') + (r.stderr || '')).trim().slice(0, 600));
       break;
     }
+    case 'mirror': {
+      // The Reading Room: crawl the whole board into static shards under
+      // from-the-square/reader/data. Public source, polite walk, checkpointed —
+      // run repeatedly to advance the full-text backfill.
+      // {"op":"mirror","mode":"backfill","budget":300}
+      // {"op":"mirror","mode":"adopt-remote"}  local data := deployed data (clears two-writer drift)
+      // {"op":"mirror","mode":"dispatch"}      only re-run the Actions refresher (no local crawl)
+      if (op.mode === 'reset-queue') {
+        // cancel queued/in-progress refresher runs (e.g. after a budget change
+        // left strangled runs serializing ahead of fresh ones)
+        const list = spawnSync('gh', ['run', 'list', '--workflow', 'reader-refresh.yml', '--repo', 'antonkarliner/from-the-square', '--json', 'databaseId,status', '--limit', '30'], { encoding: 'utf8' });
+        if (list.status !== 0) { console.log('run list failed: ' + ((list.stderr || '')).trim().slice(0, 200)); break; }
+        let n = 0;
+        for (const r of JSON.parse(list.stdout)) {
+          if (r.status === 'queued' || r.status === 'in_progress') {
+            const c = spawnSync('gh', ['run', 'cancel', String(r.databaseId), '--repo', 'antonkarliner/from-the-square'], { encoding: 'utf8' });
+            if (c.status === 0) { n++; console.log(`cancelled run ${r.databaseId} (${r.status})`); }
+          }
+        }
+        console.log(n ? `cancelled ${n} runs` : 'nothing to cancel');
+      }
+      if (op.mode !== 'dispatch' && op.mode !== 'reset-queue') {
+        const r = spawnSync('node', [join(HERE, 'from-the-square', 'reader', 'crawler.mjs'), op.mode || 'backfill', String(op.budget || 220)], { encoding: 'utf8', cwd: HERE });
+        console.log(((r.stdout || '') + (r.stderr || '')).trim().slice(0, 4000));
+        if (r.status !== 0) process.exitCode = 1;
+      }
+      // kick the Actions refresher too (gh is already the pipeline's GitHub door;
+      // idempotent behind the workflow's concurrency guard). SUPPRESS with
+      // {"nodispatch":true} during local backfill rounds — a bot commit landing
+      // between our crawl and our push is what corrupts the publish rebase.
+      if (op.nodispatch) console.log('actions: dispatch suppressed (local round)');
+      else {
+        const w = spawnSync('gh', ['workflow', 'run', 'reader-refresh.yml', '--repo', 'antonkarliner/from-the-square'], { encoding: 'utf8' });
+        console.log(w.status === 0 ? 'actions: reading-room refresh dispatched' : `actions dispatch skipped: ${((w.stderr || '') || w.stdout || '').trim().slice(0, 200)}`);
+      }
+      break;
+    }
+    case 'repo-push': {
+      // data-round push: local backfill rounds are a strict superset of the
+      // bot's commits, so if a publish rebase stopped half-done we abort it
+      // and force-lease our state over the bot's interleaved commit.
+      const REPO = join(HERE, 'from-the-square');
+      const gs = () => (spawnSync('git', ['status'], { encoding: 'utf8', cwd: REPO }).stdout || '');
+      if (/rebase in progress|currently rebasing/i.test(gs())) {
+        const ab = spawnSync('git', ['rebase', '--abort'], { encoding: 'utf8', cwd: REPO });
+        console.log('aborted stuck rebase:', ab.status === 0);
+      }
+      const cm = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8', cwd: REPO });
+      if ((cm.stdout || '').trim()) {
+        spawnSync('git', ['add', '-A'], { cwd: REPO });
+        const c = spawnSync('git', ['commit', '-m', 'reading-room: data round'], { encoding: 'utf8', cwd: REPO });
+        console.log('committed:', ((c.stdout || '') + (c.stderr || '')).trim().slice(0, 140));
+      } else console.log('nothing to commit');
+      spawnSync('git', ['fetch', 'origin', 'main'], { encoding: 'utf8', cwd: REPO });
+      const p = spawnSync('git', ['push', '--force-with-lease'], { encoding: 'utf8', cwd: REPO });
+      console.log(p.status === 0 ? 'force-lease push OK' : 'push failed: ' + ((p.stderr || '') + (p.stdout || '')).trim().slice(0, 400));
+      break;
+    }
     default:
-      console.log(`unknown op: ${op.op}. Known: brief, front, new, post, thread, ack, sha256, atlas, witness, attest, publish-post, comment, votes, rotate.`);
+      console.log(`unknown op: ${op.op}. Known: brief, front, new, post, thread, ack, sha256, atlas, witness, attest, publish-post, comment, votes, rotate, seal, mirror, repo-push.`);
       process.exitCode = 1;
   }
 }
