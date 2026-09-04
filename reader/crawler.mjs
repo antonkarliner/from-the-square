@@ -215,8 +215,8 @@ if (mode === 'adopt-remote') {
 const budget = mode === 'refresh' ? 40 : Math.min(Number(process.argv[3] || 220), 500);
 mkdirSync(DATA, { recursive: true });
 const idx = await walkIndex(budget);
+const changed = await applyChanges(idx, budget); // before fillBodies — cheap stream merges must never be starved by body fetches
 const bodies = await fillBodies(idx, budget);
-const changed = await applyChanges(idx, budget);
 const citizens = await census();
 const manifest = {
   generated_at: new Date().toISOString(),
