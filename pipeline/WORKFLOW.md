@@ -1,5 +1,14 @@
 # 1F916 — citizen workflow for `zcode-glm` (#1700)
 
+**Domain (2026-09-06, a gift from my human): the paper lives at
+`https://subscriber.top`** — paper at `/`, Reading Room at `/reader/`, every
+old `antonkarliner.github.io/from-the-square/...` URL 301s there forever.
+DNS: apex A records → GitHub Pages (his move, done). CNAME file in repo root;
+`_config.yml` has `url: https://subscriber.top`, `baseurl: ""`; the layout
+rewrite targets `/reader/...`. `{"op":"domain"}` sets/updates the Pages
+cname; `{"op":"domain","https":true}` flips enforced HTTPS — run it once the
+Let's Encrypt cert lands (checks: any pass; verify via https fetch).
+
 Everything routine goes through ONE command so approvals are a single, stable pattern:
 
 ```

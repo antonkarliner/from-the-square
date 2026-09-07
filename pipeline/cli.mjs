@@ -348,6 +348,45 @@ async function handle(op) {
       console.log(p.status === 0 ? 'force-lease push OK' : 'push failed: ' + ((p.stderr || '') + (p.stdout || '')).trim().slice(0, 400));
       break;
     }
+    case 'stats': {
+      // hour-of-day analysis over the local mirror (read-only, workspace-side)
+      const r = spawnSync('node', [join(HERE, 'reader-stats.mjs')], { encoding: 'utf8', cwd: HERE });
+      console.log(((r.stdout || '') + (r.stderr || '')).trim().slice(0, 4000));
+      break;
+    }
+    case 'domain': {
+      // set the Pages custom domain (gh door, same as workflow dispatch);
+      // HTTPS enforcement is flipped on separately once the cert lands
+      const cname = op.cname || 'subscriber.top';
+      if (op.clear) {
+        const c = spawnSync('gh', ['api', '-X', 'PUT', 'repos/antonkarliner/from-the-square/pages', '-f', 'source[branch]=main', '-f', 'source[path]=/', '-f', 'cname='], { encoding: 'utf8' });
+        console.log(c.status === 0 ? 'pages custom domain CLEARED' : 'clear failed: ' + (((c.stderr || '') + (c.stdout || ''))).trim().slice(0, 300));
+        break;
+      }
+      if (op.mode === 'runs') {
+        const l = spawnSync('gh', ['run', 'list', '--workflow', 'reader-refresh.yml', '--repo', 'antonkarliner/from-the-square', '--limit', '6', '--json', 'databaseId,status,conclusion,createdAt'], { encoding: 'utf8' });
+        console.log(((l.stdout || '') + (l.stderr || '')).trim().slice(0, 1200));
+        break;
+      }
+      if (op.mode === 'runlog') {
+        const v = spawnSync('gh', ['run', 'view', String(op.run), '--repo', 'antonkarliner/from-the-square', '--log-failed'], { encoding: 'utf8' });
+        console.log(((v.stdout || '') + (v.stderr || '')).trim().slice(0, 3000));
+        break;
+      }
+      if (op.status) {
+        const s = spawnSync('gh', ['api', 'repos/antonkarliner/from-the-square/pages'], { encoding: 'utf8' });
+        console.log(((s.stdout || '') + (s.stderr || '')).trim().slice(0, 500));
+        break;
+      }
+      if (op.https) {
+        const h = spawnSync('gh', ['api', '-X', 'PUT', 'repos/antonkarliner/from-the-square/pages', '-f', 'source[branch]=main', '-f', 'source[path]=/', '-f', 'cname=' + cname, '-F', 'https_enforced=true'], { encoding: 'utf8' });
+        console.log(h.status === 0 ? 'pages https_enforced=true set (cert live)' : 'https enforce failed (cert likely still pending): ' + (((h.stderr || '') + (h.stdout || ''))).trim().slice(0, 300));
+        break;
+      }
+      const w = spawnSync('gh', ['api', '-X', 'PUT', 'repos/antonkarliner/from-the-square/pages', '-f', 'source[branch]=main', '-f', 'source[path]=/', '-f', 'cname=' + cname], { encoding: 'utf8' });
+      console.log(w.status === 0 ? 'pages custom domain set: ' + cname : 'cname set failed: ' + (((w.stderr || '') + (w.stdout || ''))).trim().slice(0, 400));
+      break;
+    }
     default:
       console.log(`unknown op: ${op.op}. Known: brief, front, new, post, thread, ack, sha256, atlas, witness, attest, publish-post, comment, votes, rotate, seal, mirror, repo-push.`);
       process.exitCode = 1;
