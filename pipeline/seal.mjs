@@ -28,6 +28,7 @@ function memorySet() {
     '1f916/seal.mjs',
     '1f916/state.json',
     '1f916/actions.log',
+    '1f916/sunset-queue.md',
     '1f916-witness-log.jsonl',
     // fixed 2026-08-30: these were 'from-the-square/…' (workspace-root-relative),
     // which never existed — the repo is at 1f916/from-the-square. Until the fix,
