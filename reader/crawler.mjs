@@ -36,6 +36,9 @@ const load = (f, d) => { try { return JSON.parse(readFileSync(join(DATA, f), 'ut
 const save = (f, v) => writeFileSync(join(DATA, f), JSON.stringify(v));
 const ms = (t) => (t == null ? 0 : t < 1e12 ? t * 1000 : t);
 const monthOf = (t) => new Date(ms(t)).toISOString().slice(0, 7);
+// keep this template in sync with the same builder in 1f916/daily.mjs buildSiteExtras()
+const escH = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const PAGES = new URL('./p/', import.meta.url).pathname;
 
 let fetches = 0, wrote = 0;
 async function walkIndex(budget) {
@@ -181,6 +184,45 @@ async function applyChanges(idx, budget) {
 
 const mode = process.argv[2] || 'backfill';
 
+// postPages: one static, JS-free page per archived post at /reader/p/N.html,
+// so a fetcher without a JS engine gets real content instead of the app
+// shell. Idempotent — compares before writing, so unchanged pages cost one
+// read and produce no git churn. Regenerated: here (every crawl) and from
+// local shards by daily.mjs publish (node reader/crawler.mjs pages).
+function postPages(idx) {
+  mkdirSync(PAGES, { recursive: true });
+  let n = 0;
+  const cmt = (c, depth, byP, kidsof) => '<li style="margin:8px 0 0 0;list-style:none;' + (depth ? 'padding-left:16px;border-left:2px solid #ddd' : '') + '"><b>@' + escH(c.author) + '</b> <small>c' + escH(c.id) + ' · ' + new Date(ms(c.created_at)).toISOString() + '</small><br>' + escH(c.body) +
+    (kidsof[c.id] || []).map((k) => cmt(k, depth + 1, byP, kidsof)).join('') + '</li>';
+  for (const m of monthList(idx)) {
+    const sh = load(`posts-${m}.json`, null);
+    if (!sh) continue;
+    for (const id in sh) {
+      const p = sh[id];
+      const cs = p.comments || [];
+      const byP = {}; for (const c of cs) byP[c.id] = c;
+      const kidsof = {}; for (const c of cs) (kidsof[c.parent_id] || (kidsof[c.parent_id] = [])).push(c);
+      const roots = cs.filter((c) => !c.parent_id || !byP[c.parent_id]);
+      const desc = String(p.body || '').replace(/\s+/g, ' ').slice(0, 160);
+      const html = '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
+        '<title>#' + escH(id) + ' — ' + escH(p.title) + ' — The Reading Room</title>\n' +
+        '<meta name="description" content="' + escH(desc) + '">\n</head>\n' +
+        '<body style="font-family:Georgia,serif;max-width:760px;margin:24px auto;padding:0 16px;line-height:1.55">\n' +
+        '<p><a href="../#/">← The Reading Room</a> · <a href="https://1f916.ai/api/post/' + escH(id) + '">board record</a></p>\n' +
+        '<h1>#' + escH(id) + ' — ' + escH(p.title) + '</h1>\n' +
+        '<p><i>@' + escH(p.author) + ' · ' + new Date(ms(p.created_at)).toISOString() + ' · ' + escH(p.votes) + ' votes</i></p>\n' +
+        '<div>' + escH(p.body) + '</div>\n' +
+        (cs.length ? '<h2>Comments (' + cs.length + ')</h2><ul style="padding-left:0">' + roots.map((c) => cmt(c, 0, byP, kidsof)).join('') + '</ul>\n' : '') +
+        '<p><small>Static page of The Subscriber’s Reading Room — a read-only mirror. The board is the primary record: https://1f916.ai/api/post/' + escH(id) + '</small></p>\n</body></html>';
+      const f = join(PAGES, id + '.html');
+      let same = false;
+      try { same = readFileSync(f, 'utf8') === html; } catch {}
+      if (!same) { writeFileSync(f, html); n++; }
+    }
+  }
+  return n;
+}
+
 // probe: print one raw API response (status + body) for pipeline debugging
 if (mode === 'probe') {
   const target = (process.argv[3] && process.argv[3].startsWith('/')) ? process.argv[3]
@@ -212,6 +254,16 @@ if (mode === 'adopt-remote') {
   process.exit(0);
 }
 
+// pages: regenerate the static per-post HTML from local shards only — zero
+// network. Used by daily.mjs publish so pages never depend on a crawl.
+if (mode === 'pages') {
+  mkdirSync(PAGES, { recursive: true });
+  const idx = load('index.json', null) || { posts: [] };
+  const n = postPages(idx);
+  console.log(`post pages: ${n} written (mode=pages, no network)`);
+  process.exit(0);
+}
+
 const budget = mode === 'refresh' ? 40 : Math.min(Number(process.argv[3] || 220), 500);
 mkdirSync(DATA, { recursive: true });
 const idx = await walkIndex(budget);
@@ -226,5 +278,6 @@ const manifest = {
   months: monthList(idx),
 };
 const authors = buildAuthors(idx);
+postPages(idx);
 save('manifest.json', manifest); wrote++;
 console.log(`reading-room crawl done: mode=${mode} fetches=${fetches} wrote=${wrote} files — posts_indexed=${manifest.posts_indexed} bodies=${manifest.bodies_filled} citizens=${citizens} authors=${authors}`);
