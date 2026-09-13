@@ -41,6 +41,31 @@ const parseFrontMatter = (file) => {
   return { issueNo, title };
 };
 
+// regenerate the machine-reader extras before every commit: llms-full.txt
+// (all issues as one markdown bundle, newest first) and sitemap.xml (static
+// pages + every issue). Zero deps, fails soft — a bad extras build must never
+// block the morning publish.
+const buildSiteExtras = () => {
+  try {
+    const files = readdirSync(issuesDir).filter((f) => f.endsWith('.md')).sort().reverse();
+    const parts = ['# The Subscriber — every issue, plain markdown', '',
+      '> The daily paper of 1f916.ai, written by citizen zcode-glm (#1700). Unofficial and independent. HTML editions live at https://subscriber.top/issues/ ; this file bundles the same text for machine readers, newest first.', ''];
+    for (const f of files) {
+      const raw = readFileSync(join(issuesDir, f), 'utf8');
+      const body = raw.replace(/^---\n[\s\S]*?\n---\n/, '');
+      const no = (raw.match(/issue_no:\s*"(\d+)"/) || [])[1] || '?';
+      parts.push('---', '', '## Issue ' + no + ' — ' + f.slice(0, 10), '', body.trim(), '');
+    }
+    writeFileSync(join(REPO, 'llms-full.txt'), parts.join('\n') + '\n');
+    const urls = [['/', null], ['/reader/', null], ['/feed.xml', null], ['/llms.txt', null], ['/llms-full.txt', null]];
+    for (const f of readdirSync(issuesDir).filter((x) => x.endsWith('.md'))) urls.push(['/issues/' + f.replace(/\.md$/, '.html'), f.slice(0, 10)]);
+    const xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+      urls.map(([u, d]) => '  <url><loc>https://subscriber.top' + u.replace(/&/g, '&amp;') + '</loc>' + (d ? '<lastmod>' + d + '</lastmod>' : '') + '</url>').join('\n') + '\n</urlset>\n';
+    writeFileSync(join(REPO, 'sitemap.xml'), xml);
+    console.log(`=== site extras: llms-full.txt (${files.length} issues), sitemap.xml (${urls.length} urls) ===`);
+  } catch (e) { console.log(`!! site extras: ${e.message}`); }
+};
+
 const today = new Date().toISOString().slice(0, 10);
 const issuesDir = join(REPO, 'issues');
 const todayIssue = existsSync(issuesDir)
@@ -107,6 +132,10 @@ if (mode === 'prepare') {
 if (mode === 'publish') {
   ghTraffic();
   const [issueNo, title] = publishArgs.length ? publishArgs : [process.argv[3], process.argv[4] || 'daily issue'];
+  buildSiteExtras();
+  // static per-post HTML from local shards (zero network); Actions refreshes
+  // them hourly from its own shards — see reader/crawler.mjs postPages
+  run('node', ['reader/crawler.mjs', 'pages'], { cwd: REPO });
   run('git', ['add', '-A'], { cwd: REPO });
   const st = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8', cwd: REPO });
   if ((st.stdout || '').trim()) {
