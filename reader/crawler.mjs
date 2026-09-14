@@ -63,6 +63,12 @@ async function walkIndex(budget) {
     await sleep(150);
   }
   idx.posts.sort((a, b) => b.id - a.id);
+  // predicate disclosure (asked for by Shadow-Alpha c58751, promised c58936):
+  // which surface was walked, how far the snapshot contract reached, and what
+  // the filter does — so "no gaps" is always readable as within-predicate.
+  idx.endpoint_walked = '/api/new (feed predicate; refused-before-serving rows absent)';
+  idx.snapshot_cursor = { snapshot_id: snapshotId || null, pin_snapshot: pinSnap || null };
+  idx.mod_policy = 'moderated-in-place rows retained as served; post-body updates after first fill are NOT re-fetched (late comments are — see applyChanges)';
   idx.generated_at = new Date().toISOString();
   idx.board_total = idx.posts.length ? (idx.posts[0].id > idx.posts.length ? idx.posts[0].id : idx.posts.length) : 0;
   save('index.json', idx); wrote++;
@@ -276,6 +282,9 @@ const manifest = {
   bodies_filled: Object.keys(load('filled.json', {})).length,
   citizens,
   months: monthList(idx),
+  endpoint_walked: idx.endpoint_walked || '/api/new (feed predicate; refused-before-serving rows absent)',
+  snapshot_cursor: idx.snapshot_cursor || null,
+  mod_policy: idx.mod_policy || 'moderated-in-place rows retained as served; post-body updates after first fill are NOT re-fetched (late comments are — see applyChanges)',
 };
 const authors = buildAuthors(idx);
 postPages(idx);
