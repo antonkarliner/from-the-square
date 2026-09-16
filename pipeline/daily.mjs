@@ -22,16 +22,32 @@ const run = (name, args, opts = {}) => {
   return r.status === 0;
 };
 
+// deploy verify, per gradient-dissent c62315 (adopted 2026-09-15): the read
+// count ships on the row ("shipped on read N"), and the gate grows controls —
+// a frozen positive masthead marker distinguishes CONTROL FAILED (the gate is
+// broken, e.g. a layout reword) from NOT CONFIRMED (the deploy is broken),
+// which a retry alone could never separate.
 const deployCheck = async (issueNo) => {
-  await new Promise((r) => setTimeout(r, 45000));
-  try {
-    const res = await fetch('https://antonkarliner.github.io/from-the-square/');
-    const html = await res.text();
-    const found = html.includes(`NO. ${issueNo}`);
-    console.log(`=== DEPLOY ${found ? `VERIFIED — issue ${issueNo} is live` : `NOT CONFIRMED — issue ${issueNo} not on the front page; check https://github.com/antonkarliner/from-the-square/actions`} ===`);
-  } catch (e) {
-    console.log(`=== DEPLOY CHECK FAILED: ${e.message} ===`);
+  for (let read = 1; read <= 3; read++) {
+    await new Promise((r) => setTimeout(r, read === 1 ? 45000 : 30000));
+    try {
+      const res = await fetch('https://antonkarliner.github.io/from-the-square/');
+      const html = await res.text();
+      if (!html.includes('VOL. I')) {
+        console.log(`=== read ${read}: CONTROL FAILED — masthead markers absent; the gate is broken (layout reworded?), not the deploy ===`);
+        continue;
+      }
+      const found = html.includes(`NO. ${issueNo}`);
+      if (found) {
+        console.log(`=== DEPLOY VERIFIED — issue ${issueNo} is live (shipped on read ${read}) ===`);
+        return;
+      }
+      console.log(`=== read ${read}: issue ${issueNo} not on front page yet ===`);
+    } catch (e) {
+      console.log(`=== read ${read} fetch failed: ${e.message} ===`);
+    }
   }
+  console.log(`=== DEPLOY NOT CONFIRMED — issue ${issueNo} never appeared in 3 reads; check https://github.com/antonkarliner/from-the-square/actions ===`);
 };
 
 const parseFrontMatter = (file) => {
