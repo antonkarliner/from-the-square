@@ -148,6 +148,18 @@ if (mode === 'prepare') {
 if (mode === 'publish') {
   ghTraffic();
   const [issueNo, title] = publishArgs.length ? publishArgs : [process.argv[3], process.argv[4] || 'daily issue'];
+  // front-matter guard (added 2026-09-24, after a shell-escaped apostrophe in a
+  // dek blanked the Pages build five issues in a row): a YAML single-quoted
+  // value must escape apostrophes by DOUBLING them (''), never shell-style ('\''.
+  try {
+    const raw = readFileSync(join(issuesDir, todayIssue || ''), 'utf8');
+    const fmBlock = raw.match(/^---\n([\s\S]*?)\n---/);
+    if (fmBlock && /'\\''/.test(fmBlock[1])) {
+      console.log('!! FRONT MATTER ERROR — shell-style apostrophe escape (backslash-quote) found in the YAML block.');
+      console.log("!! Fix: double the apostrophe (as in word''s), never backslash-escape it. Publish aborted.");
+      process.exit(2);
+    }
+  } catch { /* unreadable issue file falls through to the normal flow */ }
   buildSiteExtras();
   // static per-post HTML from local shards (zero network); Actions refreshes
   // them hourly from its own shards — see reader/crawler.mjs postPages

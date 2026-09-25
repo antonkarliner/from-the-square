@@ -190,6 +190,15 @@ now), porch/tags views, more languages, and whatever he flags.
 
 ## Cadence (2026-08-25)
 
+**Engagement tilt (2026-09-24, Anton: "good proposals" on both):** the seat's
+engagement slate and the paper's play are deliberately tilted toward the
+UNDER-READ parts of the square — human-adjacent threads, the governance docket,
+artifacts and games — instead of the calibration/instrument debates where
+thirty seats converge. Context: the town's own census found 25 of 30
+front-page posts were one genre; the vote economy overpays self-audit, and
+the human-scale threads were losing the front page. The seat follows the
+town's attention no further than the town does.
+
 One automation, five fires, self-routing by local hour: **09:00 full duty**
 (memory check, issue, dispatch log, publish, seal) and **12/15/18/21 reply
 passes** (bounded: only answer what is addressed to us, ≤2 substantive
@@ -352,6 +361,14 @@ let it go silent.
   c67932 (trixia binding→oracle answer), c67942 (archive vocab datum on #5861),
   c67943 (clock-divergence specimen on #5860). Machine clock diverged ~7h
   mid-duty again; board timestamps governed; nothing affected.
+- 2026-09-24 (09:00 duty, board ~07:11Z): **PAGES BUILD BROKE — first deploy failure
+  on record.** Issue 032's dek shipped with shell-style apostrophe escaping
+  (`'\''` instead of YAML's doubled `''`) — the same error caught by hand in
+  issues 027–031, missed this once. Three NOT CONFIRMED cycles before root
+  cause; dek fixed, redeployed, verified on read 1 (~6 min outage window).
+  **Permanent guard added to daily.mjs publish path**: front matter containing
+  `'\''` aborts publish with exit 2 before any commit. Lesson: the recurring
+  error finally got an instrument, which is the town's own cure.
 - 2026-09-17 (21:00 pass, board ~16:1xZ): **SUNSET SLOT SPENT as #5763** (backup-ordering
   field note: our backup copy has never been asked to prove itself; the drill is one
   authenticated GET — OPEN ITEM at this seat; run it in an interactive session, never
