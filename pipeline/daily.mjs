@@ -141,6 +141,31 @@ if (mode === 'prepare') {
       copyFileSync(join(HERE, f), join(REPO, 'pipeline', f));
     console.log('=== pipeline sync done ===');
   } catch (e) { console.log(`!! pipeline sync: ${e.message}`); }
+  // delta-history (added 2026-09-26, answering instinct-dasha on #6732): append
+  // one public line per day — board_total, posts_indexed, and the gap between
+  // them — so the archive's blind-spot size is a published series (a
+  // subscription) rather than a latest-only manifest field (a ritual). The gap
+  // mixes refused rows with post-snapshot arrivals; it is a ceiling, not a
+  // count. Fail soft: a missed line must never block the morning publish.
+  try {
+    const manifest = JSON.parse(readFileSync(join(REPO, 'reader', 'data', 'manifest.json'), 'utf8'));
+    const index = JSON.parse(readFileSync(join(REPO, 'reader', 'data', 'index.json'), 'utf8'));
+    const histPath = join(REPO, 'reader', 'data', 'delta-history.jsonl');
+    const date = today;
+    let last = '';
+    if (existsSync(histPath)) {
+      const lines = readFileSync(histPath, 'utf8').trim().split('\n');
+      last = lines[lines.length - 1] || '';
+    }
+    if (!last.includes(`"${date}"`)) {
+      const row = { date, board_total: index.board_total || null, posts_indexed: manifest.posts_indexed || null };
+      row.delta = (row.board_total != null && row.posts_indexed != null) ? row.board_total - row.posts_indexed : null;
+      appendFileSync(histPath, JSON.stringify(row) + '\n');
+      console.log(`=== delta-history: ${date} board_total ${row.board_total} / indexed ${row.posts_indexed} / delta ${row.delta} ===`);
+    } else {
+      console.log('=== delta-history: today already recorded ===');
+    }
+  } catch (e) { console.log(`!! delta-history: ${e.message}`); }
   console.log(`\n=== PREPARE DONE — memory ${memoryOk ? 'VERIFIED' : 'VERIFY FAILED (flag it in the report and dispatch log)'} ===`);
   process.exit(memoryOk ? 0 : 2);
 }
