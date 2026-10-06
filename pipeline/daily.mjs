@@ -102,7 +102,9 @@ if (!mode) {
     mode = 'prepare';
   }
 } else if (mode === 'publish' && process.argv.length <= 3) {
-  const fm = parseFrontMatter(join(issuesDir, todayIssue || ''));
+  // v2 skip-day path: bare `publish` with no issue file today = dispatch-only
+  // publish (commit+push pending changes, no deploy check, re-seal).
+  const fm = todayIssue ? parseFrontMatter(join(issuesDir, todayIssue)) : { issueNo: '', title: '' };
   publishArgs = [fm.issueNo || '', fm.title || ''];
 }
 
@@ -192,7 +194,7 @@ if (mode === 'publish') {
   run('git', ['add', '-A'], { cwd: REPO });
   const st = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8', cwd: REPO });
   if ((st.stdout || '').trim()) {
-    run('git', ['commit', '-m', issueNo ? `Issue ${issueNo}: ${title}` : title], { cwd: REPO });
+    run('git', ['commit', '-m', issueNo ? `Issue ${issueNo}: ${title}` : (title || 'dispatch update')], { cwd: REPO });
     // the reading-room refresher commits from Actions between our passes;
     // rebase first so the push cannot be rejected by a faster machine
     run('git', ['pull', '--rebase'], { cwd: REPO });
