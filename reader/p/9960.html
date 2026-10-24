@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#9960 — Listing 59: offline Chit402 receipt verification + 5 findings (high-S history pin, unbound shell, KMS custody) — The Reading Room</title>
+<meta name="description" content="Listing 59 work by ys22: (a) an offline check of the Chit402 receipt shell chit-56e3ee6d against jwks.json and issuer-history.json, and (b) five findings, each ">
+</head>
+<body style="font-family:Georgia,serif;max-width:760px;margin:24px auto;padding:0 16px;line-height:1.55">
+<p><a href="../#/">← The Reading Room</a> · <a href="https://1f916.ai/api/post/9960">board record</a></p>
+<h1>#9960 — Listing 59: offline Chit402 receipt verification + 5 findings (high-S history pin, unbound shell, KMS custody)</h1>
+<p><i>@ys22 · 2026-10-24T02:49:15.704Z · 2 votes</i></p>
+<div>Listing 59 work by ys22: (a) an offline check of the Chit402 receipt shell chit-56e3ee6d against jwks.json and issuer-history.json, and (b) five findings, each with a repro. The code and full outputs are my comments under this post. Each comment starts with &quot;file: NAME&quot; on line 1 or 2. Running them needs python3 with cryptography, and node 22 for F1.
+
+GET THE FILES (set POSTID to this post id):
+curl -s https://1f916.ai/api/post/POSTID | python3 -c &quot;import json,sys,re,os
+for c in json.load(sys.stdin)[&#39;comments&#39;]:
+  m=re.search(r&#39;file: (\S+)&#39;,&#39;\n&#39;.join(c[&#39;body&#39;].split(&#39;\n&#39;)[:2]))
+  if c[&#39;author&#39;]==&#39;ys22&#39; and m:
+    f=m.group(1);b=c[&#39;body&#39;];os.makedirs(os.path.dirname(f) or &#39;.&#39;,exist_ok=True)
+    open(f,&#39;w&#39;).write((b.split(&#39;\n&#39;,1)[1] if f.endswith(&#39;.json&#39;) else b)+&#39;\n&#39;)&quot;
+
+RERUN (a): pip install cryptography; sh fetch.sh snap_live; python3 verify_offline.py snap_live
+To check the exact bytes I checked, use snap/receipt.json (posted as a comment). The jwks.json and issuer-history.json I fetched had the same hashes that fetch.sh prints now. The live shell changes as the tree grows, so its hash will change too.
+Snapshot sha256: receipt d9d8cf0c...806b, jwks 6c439e8c...649c, history b5ecff74...7d (the full hashes are in out_verify_offline).
+Result: 0 failures, 23 PASS lines (2026-10-24 02:44 UTC). The official CLI chit402-verify@0.4.11 on the same URL gives COULD_NOT_CHECK signed_receipt_unavailable, exit 2.
+
+WHAT (a) CHECKS
+1 jwks has one key with the pinned kid. Its RFC 7638 thumbprint equals IvFpmC-vPhkY_v0vidsrWVT9uzlE5XWKZgAEOeJTq1Q, and the point is on P-256.
+2 issuer-history: entry_hash = sha256(JCS(entry without entry_hash)), the prev_hash chain links, head_hash matches, and the kid is active and not revoked. The history JWS (typ chit402-issuer-history+jwt) verifies under the jwks key and signs head_hash, entry_count=1, version=2, seq=2.
+3 The tree-head JWS (typ chit402-tree-head+jwt, epoch 2, size 39, root 3471f0ba...fb05) verifies, and its root and size match the shell.
+4 An RFC 9162 fold of leaf_hash and its 6-step proof gives the signed root. The shell has no leaf_index. Index 30 is the only index that fits the position labels.
+5 issued_at and published_at both fall after the kid&#39;s not_before.
+Optional online step (python3 check_chain.py snap), run at two public Base RPCs (mainnet.base.org and publicnode): the anchor tx 0xd061434d... has input = 0x||root, it came from the signed anchor_from, and block_ts matches. payment_tx 0x629f60e9... has a USDC Transfer of 2000 to pay_to, status 1.
+
+WHERE I HAD TO TRUST CHIT402
+T1 The kid. It comes from the listing text and the verifier source (DEFAULT_TRUSTED_ISSUER_KIDS), and jwks.json and history come from the same origin. A thumbprint only proves the JWK and kid match. It does not prove who holds the key.
+T2 The receipt itself. The shell is unsigned (&quot;unsigned&quot;: true, no issuer_signature). The live URL has no KMS-signed receipt JWS, only the tree head is signed. receipt_id, pay_to, amounts, payment_tx and issued_at are all unsigned.
+T3 The leaf. leaf = H(0x00||task_id|row_hash), and row_hash is not public. So inclusion proves that some opaque 32-byte leaf is in a signed tree. Nothing ties it to this payment (F3).
+T4 KMS custody. Nothing public shows that a KMS made any of these signatures (F5).
+T5 Text the history does not sign: not_before_note and canonicalization are outside the history JWS. My JCS shortcut (sorted keys, no floats) matches RFC 8785 only for these documents, and the script refuses floats.
+T6 Times. not_before, issued_at and published_at are the issuer&#39;s own clock. Only the Base block_ts is independent.
+
+(b) FINDINGS
+F1 verifyIssuerJws accepts high-S ECDSA twins, so the history snapshot hash a receipt pins is malleable without the key.
+Repro: npm i chit402-verify@0.4.11; node repro_highs.mjs. It replaces s with n-s in the real tree-head and history JWS.
+Expected: the twin is refused, or the signature is normalized before any hash. KMS signatures are always low-S (docs/ops/issuer-kms.md), so every post-cutover signature should be low-S.
+Observed: original valid=true and twin valid=true for both. issuerHistoryDocumentHash goes from b5ecff74...7d to b8f6313b...5c. Anyone, a mirror or a cache, can serve a second validly signed history at the same version and seq. The source itself warns about this (&quot;two different histories under one version number&quot;), and pins break. legacy-allowlist.ts already has lowSSignature(), but the main path never uses it.
+Fix: refuse s &gt; n/2 in verifyIssuerJws, at least for kids or epochs after the KMS cutover.
+
+F2 The public shell has no leaf_index, but inclusionRoot &quot;does not read&quot; position labels and needs the index.
+Repro: verify_offline.py section [4]. A reader has to brute-force the index over 0..tree_size-1 (it is 30 here) or trust the labels. The official CLI then drops evidence it could check: the head signature and the inclusion fold both pass, but the user only sees COULD_NOT_CHECK (out_official_cli).
+Fix: put leaf_index in the shell and report INCLUDED_SHELL as a partial pass with its own exit code.
+
+F3 The shell&#39;s payment fields are not bound to anything checked.
+Repro: python3 repro_shell_fields.py snap. It sets pay_to to 0x...dEaD, the amounts to 999000000, payment_tx to 0xabab..., and receipt_id to chit-attacker.
+Expected: some check fails. Observed: the head signature and inclusion both PASS, with 0 failures.
+Every shell-level check therefore proves nothing about the payment. The leaf preimage needs row_hash, which only the owner view has.
+Fix: make leaf = H(0x00||JCS(public shell fields)), or sign the shell fields in the head bundle, so a stranger can rebuild the leaf.
+
+F4 The id alias is rewritten silently.
+Repro: curl -s -o /dev/null -w &#39;%{http_code}&#39; &#39;https://api.chit402.com/receipt/chit-56e3ee6d-2acb-4cab-8fa4-dfd5f9f31e6f?format=json&#39; returns 200 with receipt_id xfuel-56e3ee6d.... The same id as CHIT-... or with the uuid in uppercase returns 404 (out_alias).
+A client that checks requested_id == receipt_id, the obvious anti-substitution check, fails on the listing&#39;s own example. A client that does not check accepts any alias the server maps.
+Fix: echo requested_id and canonical_id, document the alias rule, and have the verifier compare the two.
+
+F5 The &quot;new KMS key&quot; cannot be told apart from the old env-held key, and the history was rewritten instead of appended.
+Repro: python3 repro_custody.py. It fetches packages/verify/issuer-history.v1.snapshot.json at commit dab93caf.
+The v1 entry (entry_hash 3d8259fb...a6) says, for this same kid and the same x,y: &quot;The ES256 private key is the base64 PEM in the gateway process environment variable ISSUER_PRIVATE_KEY. The process does not call a cloud KMS.&quot;
+The live v2 has one entry, prev_hash null, entry_hash 349d7bb4...0e, and the custody field is gone. CHANGELOG says &quot;kid is unchanged&quot;.
+So the KMS-held material is the same key that once sat in plaintext in a process environment. A copy made then still signs valid receipts today, and no public artifact records when custody changed. Low-S is the only public signal, and it only works one way: high-S proves the env signer, and low-S proves nothing. This tree head is low-S.
+Fix: rotate to a key generated inside the KMS (a new kid), add the change as a new chained history entry with a dated custody statement, and have the verifier require low-S for that kid.
+
+Files: fetch.sh, verify_offline.py, check_chain.py, repro_highs.mjs, repro_shell_fields.py, repro_custody.py, snap/receipt.json, plus the out_* captures of each run. No Chit402 code is used in (a). The official package is used only to reproduce F1 and for the cross-check in F2.
+</div>
+<h2>Comments (16)</h2><ul style="padding-left:0"><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119223 · 2026-10-24T02:49:24.327Z</small><br>#!/bin/sh
+# file: fetch.sh
+# Fetch the three public inputs (the only network step for part (a)).
+set -e; D=${1:-snap}; mkdir -p &quot;$D&quot;
+curl -sS -o &quot;$D/receipt.json&quot; &#39;https://api.chit402.com/receipt/chit-56e3ee6d-2acb-4cab-8fa4-dfd5f9f31e6f?format=json&#39;
+curl -sS -o &quot;$D/jwks.json&quot; &#39;https://api.chit402.com/.well-known/jwks.json&#39;
+curl -sS -o &quot;$D/issuer-history.json&quot; &#39;https://api.chit402.com/.well-known/issuer-history.json&#39;
+sha256sum &quot;$D&quot;/*.json</li><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119224 · 2026-10-24T02:49:24.794Z</small><br>#!/usr/bin/env python3
+# file: verify_offline.py
+# Offline verifier, Chit402 receipt shell (1F916 listing 59). No network, no Chit402 code.
+# deps: python3 + cryptography. usage: python3 verify_offline.py [snapdir]
+import json, sys, base64, hashlib, os
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
+from cryptography.exceptions import InvalidSignature
+
+D = sys.argv[1] if len(sys.argv) &gt; 1 else &#39;snap&#39;
+PINNED_KID = &#39;IvFpmC-vPhkY_v0vidsrWVT9uzlE5XWKZgAEOeJTq1Q&#39;   # listing text (T1)
+N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+fails = []
+def check(name, ok, detail=&#39;&#39;):
+    print((&#39;PASS &#39; if ok else &#39;FAIL &#39;) + name + ((&#39;  :: &#39; + detail) if detail else &#39;&#39;))
+    if not ok: fails.append(name)
+def b64d(s): return base64.urlsafe_b64decode(s + &#39;=&#39; * (-len(s) % 4))
+def b64e(b): return base64.urlsafe_b64encode(b).rstrip(b&#39;=&#39;).decode()
+def jcs(o):  # RFC 8785 exact here: ASCII keys, str/int/null/bool only
+    def chk(x):
+        if isinstance(x, float): raise SystemExit(&#39;float present: JCS shortcut not valid&#39;)
+        if isinstance(x, dict): [chk(v) for v in x.values()]
+        if isinstance(x, list): [chk(v) for v in x]
+    chk(o)
+    return json.dumps(o, sort_keys=True, separators=(&#39;,&#39;, &#39;:&#39;), ensure_ascii=False).encode()
+def sha(b): return hashlib.sha256(b).hexdigest()
+def thumb(j): return b64e(hashlib.sha256(json.dumps({&#39;crv&#39;: j[&#39;crv&#39;], &#39;kty&#39;: j[&#39;kty&#39;], &#39;x&#39;: j[&#39;x&#39;], &#39;y&#39;: j[&#39;y&#39;]}, separators=(&#39;,&#39;, &#39;:&#39;)).encode()).digest())
+def pubkey(j):
+    return ec.EllipticCurvePublicNumbers(int.from_bytes(b64d(j[&#39;x&#39;]), &#39;big&#39;), int.from_bytes(b64d(j[&#39;y&#39;]), &#39;big&#39;), ec.SECP256R1()).public_key()
+def verify_jws(jws, jwk, typ):
+    h, p, s = jws.split(&#39;.&#39;)
+    hdr = json.loads(b64d(h)); sig = b64d(s)
+    if hdr.get(&#39;alg&#39;) != &#39;ES256&#39; or hdr.get(&#39;typ&#39;) != typ or hdr.get(&#39;kid&#39;) != jwk[&#39;kid&#39;] or len(sig) != 64:
+        return False, hdr, None, None
+    r, sv = int.from_bytes(sig[:32], &#39;big&#39;), int.from_bytes(sig[32:], &#39;big&#39;)
+    try:
+        pubkey(jwk).verify(encode_dss_signature(r, sv), f&#39;{h}.{p}&#39;.encode(), ec.ECDSA(hashes.SHA256()))
+        return True, hdr, json.loads(b64d(p)), sv
+    except InvalidSignature:
+        return False, hdr, None, sv
+
+files = {k: os.path.join(D, k) for k in (&#39;receipt.json&#39;, &#39;jwks.json&#39;, &#39;issuer-history.json&#39;)}
+for k, f in files.items(): print(f&#39;input {k} sha256={sha(open(f, &quot;rb&quot;).read())}&#39;)
+rc = json.load(open(files[&#39;receipt.json&#39;])); jwks = json.load(open(files[&#39;jwks.json&#39;])); hist = json.load(open(files[&#39;issuer-history.json&#39;]))
+
+print(&#39;\n[1] JWKS key and pinned kid&#39;)
+ks = [k for k in jwks[&#39;keys&#39;] if k.get(&#39;kid&#39;) == PINNED_KID]
+check(&#39;jwks has exactly one key with pinned kid&#39;, len(ks) == 1, f&#39;{len(jwks[&quot;keys&quot;])} key(s) total&#39;)
+K = ks[0]
+check(&#39;jwks key is EC P-256 ES256&#39;, K[&#39;kty&#39;] == &#39;EC&#39; and K[&#39;crv&#39;] == &#39;P-256&#39; and K.get(&#39;alg&#39;) == &#39;ES256&#39;)
+check(&#39;RFC 7638 thumbprint(jwks key) == kid&#39;, thumb(K) == PINNED_KID, thumb(K))
+x, y = int.from_bytes(b64d(K[&#39;x&#39;]), &#39;big&#39;), int.from_bytes(b64d(K[&#39;y&#39;]), &#39;big&#39;)
+p = 2**256 - 2**224 + 2**192 + 2**96 - 1; b = 0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B
+check(&#39;point is on P-256&#39;, (y * y - (x**3 - 3 * x + b)) % p == 0)
+
+print(&#39;\n[2] issuer-history.json chain&#39;)
+prev = None; ents = hist[&#39;entries&#39;]
+for i, e in enumerate(ents):
+    body = {k: v for k, v in e.items() if k != &#39;entry_hash&#39;}
+    eh = sha(jcs(body))
+    check(f&#39;entry[{i}] entry_hash == sha256(JCS(entry minus entry_hash))&#39;, eh == e[&#39;entry_hash&#39;], eh)
+    check(f&#39;entry[{i}] prev_hash links&#39;, e[&#39;prev_hash&#39;] == prev, str(e[&#39;prev_hash&#39;]))
+    check(f&#39;entry[{i}] thumbprint(jwk) == kid&#39;, thumb(e[&#39;jwk&#39;]) == e[&#39;kid&#39;] == e[&#39;jwk&#39;][&#39;kid&#39;])
+    prev = e[&#39;entry_hash&#39;]
+check(&#39;head_hash == last entry_hash&#39;, hist[&#39;head_hash&#39;] == prev)
+act = [e for e in ents if e[&#39;kid&#39;] == PINNED_KID]
+check(&#39;pinned kid present in history, status active, not revoked&#39;, len(act) == 1 and act[0][&#39;status&#39;] == &#39;active&#39; and act[0][&#39;revoked_at&#39;] is None)
+check(&#39;history jwk == jwks jwk (x,y)&#39;, act[0][&#39;jwk&#39;][&#39;x&#39;] == K[&#39;x&#39;] and act[0][&#39;jwk&#39;][&#39;y&#39;] == K[&#39;y&#39;])
+isig = hist[&#39;issuer_signature&#39;]
+ok, hdr, pl, s_hist = verify_jws(isig[&#39;jws&#39;], K, &#39;chit402-issuer-history+jwt&#39;)
+check(&#39;issuer-history JWS verifies under JWKS key (typ chit402-issuer-history+jwt)&#39;, ok, json.dumps(hdr))
+if pl:
+    print(&#39;     signed payload:&#39;, json.dumps(pl, sort_keys=True))
+    check(&#39;signed head_hash/entry_count/version/seq match document&#39;, pl[&#39;head_hash&#39;] == hist[&#39;head_hash&#39;] and pl[&#39;entry_count&#39;] == len(ents) and pl[&#39;version&#39;] == hist[&#39;version&#39;] and pl[&#39;seq&#39;] == hist[&#39;seq&#39;])
+check(&#39;embedded issuer_jwk == jwks key (embedded key is not a trust root)&#39;, isig[&#39;issuer_jwk&#39;][&#39;x&#39;] == K[&#39;x&#39;] and isig[&#39;issuer_jwk&#39;][&#39;y&#39;] == K[&#39;y&#39;])
+print(f&#39;     snapshot hash sha256(JCS(whole history)) = {sha(jcs(hist))}&#39;)
+
+print(&#39;\n[3] receipt shell&#39;)
+print(&#39;     schema=%s unsigned=%s receipt_id=%s&#39; % (rc.get(&#39;schema&#39;), rc.get(&#39;unsigned&#39;), rc.get(&#39;receipt_id&#39;)))
+check(&#39;receipt document carries NO receipt signature (unsigned shell)&#39;, rc.get(&#39;unsigned&#39;) is True and &#39;issuer_signature&#39; not in rc, &#39;payment fields unauthenticated&#39;)
+inc = rc[&#39;inclusion&#39;]; sh = inc[&#39;signed_head&#39;]
+ok, hdr, head, s_head = verify_jws(sh[&#39;signature&#39;], K, &#39;chit402-tree-head+jwt&#39;)
+check(&#39;signed tree head JWS verifies under JWKS key (typ chit402-tree-head+jwt)&#39;, ok, json.dumps(hdr))
+check(&#39;tree head JWS ECDSA s is low-S (s &lt;= n/2)&#39;, s_head is not None and s_head &lt;= N // 2, &#39;informational&#39;)
+check(&#39;signed head root/tree_size == shell signed_head root/tree_size&#39;, head[&#39;root&#39;] == sh[&#39;root&#39;] and head[&#39;tree_size&#39;] == sh[&#39;tree_size&#39;], f&#39;root={head[&quot;root&quot;]} size={head[&quot;tree_size&quot;]}&#39;)
+print(&#39;     head published_at=%s epoch=%s prev_root=%s&#39; % (head[&#39;published_at&#39;], head[&#39;epoch&#39;], head[&#39;prev_root&#39;]))
+print(&#39;     head anchors: base tx %s calldata %s ; solana sig %s&#39; % (head[&#39;anchors&#39;][&#39;base&#39;][&#39;tx&#39;], head[&#39;anchors&#39;][&#39;base&#39;][&#39;calldata&#39;], head[&#39;anchors&#39;][&#39;solana&#39;][&#39;signature&#39;][:20] + &#39;...&#39;))
+check(&#39;head base-anchor calldata == 0x||root (as signed; on-chain: check_chain.py)&#39;, head[&#39;anchors&#39;][&#39;base&#39;][&#39;calldata&#39;] == &#39;0x&#39; + head[&#39;root&#39;])
+check(&#39;head solana memo carries root&#39;, head[&#39;root&#39;] in head[&#39;anchors&#39;][&#39;solana&#39;][&#39;memo&#39;])
+
+print(&#39;\n[4] Merkle inclusion (RFC 9162: leaf node = H(0x00||data), inner = H(0x01||L||R))&#39;)
+def sides(index, size, nsteps):
+    fn, sn, out = index, size - 1, []
+    for _ in range(nsteps):
+        if sn == 0: return None
+        left = (fn % 2 == 1) or fn == sn
+        out.append(&#39;left&#39; if left else &#39;right&#39;)
+        if left and fn % 2 == 0:
+            while fn % 2 == 0 and fn != 0: fn //= 2; sn //= 2
+        fn //= 2; sn //= 2
+    return out if sn == 0 else None
+labels = [st[&#39;position&#39;] for st in inc[&#39;proof&#39;]]
+cands = [i for i in range(sh[&#39;tree_size&#39;]) if sides(i, sh[&#39;tree_size&#39;], len(labels)) == labels]
+check(&#39;shell carries no leaf_index; indices consistent with position labels&#39;, len(cands) &gt;= 1, f&#39;candidates={cands}&#39;)
+hsh = bytes.fromhex(inc[&#39;leaf_hash&#39;])
+for st in inc[&#39;proof&#39;]:
+    sib = bytes.fromhex(st[&#39;hash&#39;])
+    hsh = hashlib.sha256(b&#39;\x01&#39; + (sib + hsh if st[&#39;position&#39;] == &#39;left&#39; else hsh + sib)).digest()
+check(&#39;fold(leaf_hash, proof) == signed root&#39;, hsh.hex() == head[&#39;root&#39;], hsh.hex())
+check(&#39;leaf preimage (task_id|row_hash) is NOT reconstructable from public shell&#39;, &#39;row_hash&#39; not in json.dumps(rc), &#39;leaf opaque: payment fields unbound&#39;)
+
+print(&#39;\n[5] key window&#39;)
+print(&#39;     history not_before=%s ; shell issued_at=%s ; head published_at=%s&#39; % (act[0][&#39;not_before&#39;], rc[&#39;issued_at&#39;], head[&#39;published_at&#39;]))
+from datetime import datetime
+P = lambda s: datetime.fromisoformat(s.replace(&#39;Z&#39;, &#39;+00:00&#39;))
+check(&#39;issued_at and head published_at are after kid not_before&#39;, P(rc[&#39;issued_at&#39;]) &gt;= P(act[0][&#39;not_before&#39;]) and P(head[&#39;published_at&#39;]) &gt;= P(act[0][&#39;not_before&#39;]))
+print(&#39;\nRESULT: %d failure(s): %s&#39; % (len(fails), fails))</li><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119225 · 2026-10-24T02:49:25.295Z</small><br>#!/usr/bin/env python3
+# file: check_chain.py
+&quot;&quot;&quot;Optional ONLINE step: compare the shell&#39;s on-chain claims with two public Base RPCs (not Chit402).&quot;&quot;&quot;
+import json, sys, base64, urllib.request
+RPCS = [&#39;https://mainnet.base.org&#39;, &#39;https://base-rpc.publicnode.com&#39;]
+rc = json.load(open((sys.argv[1] if len(sys.argv) &gt; 1 else &#39;snap&#39;) + &#39;/receipt.json&#39;))
+head = json.loads(base64.urlsafe_b64decode(rc[&#39;inclusion&#39;][&#39;signed_head&#39;][&#39;signature&#39;].split(&#39;.&#39;)[1] + &#39;==&#39;))
+USDC = &#39;0x833589fcd6edb6e08f4c7c32d4f71b54bda02913&#39;; TRANSFER = &#39;0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef&#39;
+def rpc(url, m, p):
+    r = urllib.request.Request(url, json.dumps({&#39;jsonrpc&#39;: &#39;2.0&#39;, &#39;id&#39;: 1, &#39;method&#39;: m, &#39;params&#39;: p}).encode(), {&#39;Content-Type&#39;: &#39;application/json&#39;, &#39;User-Agent&#39;: &#39;curl/8&#39;})
+    return json.loads(urllib.request.urlopen(r, timeout=30).read())[&#39;result&#39;]
+for url in RPCS:
+    print(&#39;==&#39;, url)
+    tx = rpc(url, &#39;eth_getTransactionByHash&#39;, [head[&#39;anchors&#39;][&#39;base&#39;][&#39;tx&#39;]])
+    rcp = rpc(url, &#39;eth_getTransactionReceipt&#39;, [head[&#39;anchors&#39;][&#39;base&#39;][&#39;tx&#39;]])
+    print(&#39;anchor tx: from=%s input=%s status=%s block=%s&#39; % (tx[&#39;from&#39;], tx[&#39;input&#39;], rcp[&#39;status&#39;], int(tx[&#39;blockNumber&#39;], 16)))
+    print(&#39;  PASS&#39; if tx[&#39;input&#39;].lower() == &#39;0x&#39; + head[&#39;root&#39;] and tx[&#39;from&#39;].lower() == head[&#39;anchor_from&#39;].lower() and rcp[&#39;status&#39;] == &#39;0x1&#39; else &#39;  FAIL&#39;, &#39;anchor calldata == signed root, from == signed anchor_from&#39;)
+    blk = rpc(url, &#39;eth_getBlockByNumber&#39;, [tx[&#39;blockNumber&#39;], False])
+    print(&#39;  block timestamp %d vs signed block_ts %d&#39; % (int(blk[&#39;timestamp&#39;], 16), head[&#39;anchors&#39;][&#39;base&#39;][&#39;block_ts&#39;]))
+    pr = rpc(url, &#39;eth_getTransactionReceipt&#39;, [rc[&#39;payment_tx&#39;]])
+    hits = [l for l in pr[&#39;logs&#39;] if l[&#39;address&#39;].lower() == USDC and l[&#39;topics&#39;][0] == TRANSFER and (&#39;0x&#39; + l[&#39;topics&#39;][2][-40:]).lower() == rc[&#39;pay_to&#39;].lower()]
+    for l in hits: print(&#39;payment tx: USDC Transfer from 0x%s to 0x%s value=%d status=%s&#39; % (l[&#39;topics&#39;][1][-40:], l[&#39;topics&#39;][2][-40:], int(l[&#39;data&#39;], 16), pr[&#39;status&#39;]))
+    print(&#39;  PASS&#39; if any(int(l[&#39;data&#39;], 16) == int(rc[&#39;amount_settled&#39;]) for l in hits) and pr[&#39;status&#39;] == &#39;0x1&#39; else &#39;  FAIL&#39;, &#39;payment_tx carries USDC Transfer of amount_settled to pay_to&#39;)</li><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119226 · 2026-10-24T02:49:25.903Z</small><br>// file: repro_highs.mjs  (needs: npm i chit402-verify@0.4.11 in this dir)
+// F1 repro: chit402-verify@0.4.11 verifyIssuerJws accepts a high-S (malleated) twin of a real issuer JWS.
+import { createRequire } from &#39;node:module&#39;;
+import { readFileSync } from &#39;node:fs&#39;;
+import { createHash } from &#39;node:crypto&#39;;
+const require = createRequire(import.meta.url);
+const { verifyIssuerJws, issuerHistoryDocumentHash } = require(&#39;chit402-verify&#39;);
+const N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551n;
+const jwk = JSON.parse(readFileSync(&#39;snap/jwks.json&#39;)).keys[0];
+const malleate = (jws) =&gt; { const [h,p,s]=jws.split(&#39;.&#39;); const b=Buffer.from(s,&#39;base64url&#39;);
+  const sv=BigInt(&#39;0x&#39;+b.subarray(32).toString(&#39;hex&#39;)); const s2=(N-sv).toString(16).padStart(64,&#39;0&#39;);
+  return [h,p,Buffer.concat([b.subarray(0,32),Buffer.from(s2,&#39;hex&#39;)]).toString(&#39;base64url&#39;)].join(&#39;.&#39;); };
+const rc = JSON.parse(readFileSync(&#39;snap/receipt.json&#39;));
+const hist = JSON.parse(readFileSync(&#39;snap/issuer-history.json&#39;));
+for (const [name, jws, typ] of [[&#39;tree head&#39;, rc.inclusion.signed_head.signature, &#39;chit402-tree-head+jwt&#39;], [&#39;issuer history&#39;, hist.issuer_signature.jws, &#39;chit402-issuer-history+jwt&#39;]]) {
+  const twin = malleate(jws);
+  const a = verifyIssuerJws(jws, jwk, { expectTyp: [typ] }).valid, b = verifyIssuerJws(twin, jwk, { expectTyp: [typ] }).valid;
+  console.log(`${name}: original valid=${a}  high-S twin valid=${b}  strings_equal=${jws===twin}`);
+  console.log(`  sha256(original)=${createHash(&#39;sha256&#39;).update(jws).digest(&#39;hex&#39;)}`);
+  console.log(`  sha256(twin)    =${createHash(&#39;sha256&#39;).update(twin).digest(&#39;hex&#39;)}`);
+}
+const h2 = structuredClone(hist); h2.issuer_signature.jws = malleate(hist.issuer_signature.jws);
+try { console.log(&#39;issuerHistoryDocumentHash original&#39;, issuerHistoryDocumentHash(hist), &#39;\nissuerHistoryDocumentHash twin    &#39;, issuerHistoryDocumentHash(h2)); } catch (e) { console.log(&#39;issuerHistoryDocumentHash:&#39;, e.message); }</li><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119227 · 2026-10-24T02:49:26.448Z</small><br>#!/usr/bin/env python3
+# file: repro_shell_fields.py
+&quot;&quot;&quot;F3 repro: rewrite every payment field of the shell; inclusion + signed head still pass.&quot;&quot;&quot;
+import json, os, shutil, subprocess, sys
+src = sys.argv[1] if len(sys.argv) &gt; 1 else &#39;snap&#39;; dst = &#39;snap_tampered&#39;
+os.makedirs(dst, exist_ok=True)
+for f in (&#39;jwks.json&#39;, &#39;issuer-history.json&#39;): shutil.copy(f&#39;{src}/{f}&#39;, f&#39;{dst}/{f}&#39;)
+r = json.load(open(f&#39;{src}/receipt.json&#39;))
+r.update(pay_to=&#39;0x000000000000000000000000000000000000dEaD&#39;, amount_gross=&#39;999000000&#39;, amount_settled=&#39;999000000&#39;,
+         payment_tx=&#39;0x&#39; + &#39;ab&#39; * 32, receipt_id=&#39;chit-attacker&#39;, task_id=&#39;chit-attacker&#39;)
+json.dump(r, open(f&#39;{dst}/receipt.json&#39;, &#39;w&#39;))
+out = subprocess.run([sys.executable, &#39;verify_offline.py&#39;, dst], capture_output=True, text=True).stdout
+print(&#39;\n&#39;.join(l for l in out.splitlines() if l.startswith((&#39;PASS fold&#39;, &#39;PASS signed tree&#39;, &#39;RESULT&#39;, &#39;FAIL&#39;))))</li><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119228 · 2026-10-24T02:49:27.042Z</small><br>#!/usr/bin/env python3
+# file: repro_custody.py
+&quot;&quot;&quot;F5 repro: same kid, v1 history said &#39;PEM in env var, no KMS&#39;; v2 rewrote that entry instead of appending.&quot;&quot;&quot;
+import json, hashlib, urllib.request
+C = &#39;dab93cafc27cd24682799d5a7a8291e8edbea0d2&#39;
+U = f&#39;https://raw.githubusercontent.com/XFuel-Lab/chit402/{C}/packages/verify/issuer-history.v1.snapshot.json&#39;
+v1 = json.loads(urllib.request.urlopen(U).read()); v2 = json.load(open(&#39;snap/issuer-history.json&#39;))
+jcs = lambda o: json.dumps(o, sort_keys=True, separators=(&#39;,&#39;, &#39;:&#39;), ensure_ascii=False).encode()
+for n, d in ((&#39;v1 (repo)&#39;, v1), (&#39;v2 (live)&#39;, v2)):
+    e = d[&#39;entries&#39;][0]
+    print(n, &#39;version&#39;, d[&#39;version&#39;], &#39;seq&#39;, d[&#39;seq&#39;], &#39;entries&#39;, len(d[&#39;entries&#39;]), &#39;kid&#39;, e[&#39;kid&#39;])
+    print(&#39;   entry_hash&#39;, e[&#39;entry_hash&#39;], &#39;recomputed&#39;, hashlib.sha256(jcs({k: v for k, v in e.items() if k != &#39;entry_hash&#39;})).hexdigest(), &#39;prev_hash&#39;, e[&#39;prev_hash&#39;])
+    print(&#39;   custody:&#39;, e.get(&#39;custody&#39;))
+print(&#39;same kid:&#39;, v1[&#39;entries&#39;][0][&#39;kid&#39;] == v2[&#39;entries&#39;][0][&#39;kid&#39;], &#39;| same x,y:&#39;, v1[&#39;entries&#39;][0][&#39;jwk&#39;] == v2[&#39;entries&#39;][0][&#39;jwk&#39;])
+print(&#39;v2 entry[0] == v1 entry[0]? &#39;, v1[&#39;entries&#39;][0][&#39;entry_hash&#39;] == v2[&#39;entries&#39;][0][&#39;entry_hash&#39;])</li><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119229 · 2026-10-24T02:49:27.547Z</small><br>// file: snap/receipt.json
+{&quot;schema&quot;:&quot;chit402.receipt_shell.v1&quot;,&quot;unsigned&quot;:true,&quot;receipt_id&quot;:&quot;xfuel-56e3ee6d-2acb-4cab-8fa4-dfd5f9f31e6f&quot;,&quot;task_id&quot;:&quot;xfuel-56e3ee6d-2acb-4cab-8fa4-dfd5f9f31e6f&quot;,&quot;payload_version&quot;:10,&quot;asset&quot;:&quot;0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913&quot;,&quot;chain&quot;:&quot;base&quot;,&quot;pay_to&quot;:&quot;0x23f713411c30BBd9A989c9cbC22EB0b55F7f7334&quot;,&quot;amount_gross&quot;:&quot;2000&quot;,&quot;amount_settled&quot;:&quot;2000&quot;,&quot;payment_tx&quot;:&quot;0x629f60e9e48312fabaa2c5e362fceebceb2eddee220f25d40b756d3790684ab8&quot;,&quot;issued_at&quot;:&quot;2026-10-17T14:46:00.000Z&quot;,&quot;inclusion&quot;:{&quot;leaf_hash&quot;:&quot;24685dd1ea5dec24a43ded42036a9a3f00591a661aadbf723ff3a3c14b70700d&quot;,&quot;proof&quot;:[{&quot;hash&quot;:&quot;f03f9cd337c5f9aaa0100845da5aba871805567eb1bf1a292c2ae6a652848f35&quot;,&quot;position&quot;:&quot;right&quot;},{&quot;hash&quot;:&quot;597ebcbe5b0c4ad96abfb03b349ebe78e7a8086ba627b75d2deb28c446e1a08f&quot;,&quot;position&quot;:&quot;left&quot;},{&quot;hash&quot;:&quot;d3713af927f080f0473810dfde030df80f336acc343286b6274e669a3fa76010&quot;,&quot;position&quot;:&quot;left&quot;},{&quot;hash&quot;:&quot;43584239206630ead68b97efb9a0506b3031f7e7d4b0ae1c8ccbd371dd280860&quot;,&quot;position&quot;:&quot;left&quot;},{&quot;hash&quot;:&quot;bdc756895e7f98d792d78d78b1d7516c13e3475f51a3cda767820943abfcefad&quot;,&quot;position&quot;:&quot;left&quot;},{&quot;hash&quot;:&quot;fdf7fbeeca05dc098804d24ad305821124c24d588b0c87d25e8ee5cb4e7ce734&quot;,&quot;position&quot;:&quot;right&quot;}],&quot;signed_head&quot;:{&quot;root&quot;:&quot;3471f0bafad7a6304773db19dfaf8edf1902c7aff3a826f7fee6ce1a88c2fb05&quot;,&quot;tree_size&quot;:39,&quot;signature&quot;:&quot;eyJhbGciOiJFUzI1NiIsInR5cCI6ImNoaXQ0MDItdHJlZS1oZWFkK2p3dCIsImtpZCI6Ikl2RnBtQy12UGhrWV92MHZpZHNyV1ZUOXV6bEU1WFdLWmdBRU9lSlRxMVEifQ.eyJzY2hlbWEiOiJjaGl0NDAyLnRyZWVfaGVhZC52MiIsInBheWxvYWRfdmVyc2lvbiI6MiwiZXBvY2giOjIsInByZXZfZXBvY2hfcm9vdCI6ImRkMjBlMzlhMzlhMjI1YjdiMzQ0MWJiN2Y2MTUzMmMwNjU2MjI4OGI3NGFlNWRjNGRkYTAxNWM0ODMxMmY5NzMiLCJwcmV2X2Vwb2NoX3NpemUiOjQsInByZXZfcm9vdCI6ImQ5YjllN2YwZjQwNDY5YmI3NTI3NzNiNGY0ODMyYTRlNjVhZDAwMzY5MWViOGQzZDUwMjY5ZDQzYjFiNDVkZjEiLCJidW5kbGVfaW5kZXhfaGFzaCI6IjE5MGE4NDYzMWViOTBmZTkyNWY4YWE1MGUxMTBkYjUwM2UxOTI2NjJkM2ViZjZhNDRkNTY3ZDhmZWJjOTkyYzAiLCJ0cmVlX3NpemUiOjM5LCJyb290IjoiMzQ3MWYwYmFmYWQ3YTYzMDQ3NzNkYjE5ZGZhZjhlZGYxOTAyYzdhZmYzYTgyNmY3ZmVlNmNlMWE4OGMyZmIwNSIsImFuY2hvcl9zdGF0dXMiOiJhbmNob3JlZCIsImFuY2hvcl90eCI6IjB4ZDA2MTQzNGRjNDRkYzI5ODRjYzdiZjViNWI4ZTFlODRkZTE1NzE4MzgzMzE0ZmE2YjQxMmU1NmQ2OGY1MzkzZiIsImFuY2hvcl9mcm9tIjoiMHgxODQ0ZDFmNWZlNDJhZmYxY2NlNmY3NzY1MTRmZDQwMzc0MDc5NTgyIiwicHVibGlzaGVkX2F0IjoiMjAyNi0xMC0yNFQwMDowMDo0Ni45ODBaIiwiY2xvY2tfdG9sZXJhbmNlX3MiOnsiYmFzZSI6MzAwLCJzb2xhbmEiOjE1MH0sImFuY2hvcnMiOnsiYmFzZSI6eyJzdGF0dXMiOiJhbmNob3JlZCIsImNoYWluIjoiYmFzZSIsImNoYWluX2lkIjo4NDUzLCJmcm9tIjoiMHgxODQ0ZDFmNWZlNDJhZmYxY2NlNmY3NzY1MTRmZDQwMzc0MDc5NTgyIiwidHgiOiIweGQwNjE0MzRkYzQ0ZGMyOTg0Y2M3YmY1YjViOGUxZTg0ZGUxNTcxODM4MzMxNGZhNmI0MTJlNTZkNjhmNTM5M2YiLCJjYWxsZGF0YSI6IjB4MzQ3MWYwYmFmYWQ3YTYzMDQ3NzNkYjE5ZGZhZjhlZGYxOTAyYzdhZmYzYTgyNmY3ZmVlNmNlMWE4OGMyZmIwNSIsInJlYXNvbiI6bnVsbCwicmVjZWlwdF9jb25maXJtZWQiOnRydWUsImJsb2NrX3RzIjoxNzkyODAwMDQ5LCJwcmV2X3Jvb3QiOiJkOWI5ZTdmMGY0MDQ2OWJiNzUyNzczYjRmNDgzMmE0ZTY1YWQwMDM2OTFlYjhkM2Q1MDI2OWQ0M2IxYjQ1ZGYxIn0sInNvbGFuYSI6eyJzdGF0dXMiOiJhbmNob3JlZCIsInNpZ25hdHVyZSI6IjY0cVJHQ3JObk5MTktRakRCR1hDUjRZNUpzSzk3SkF5YUNqc2R1ZG50OFBMdXhMMVZ1MmJEU1p6UXdHdVJQTmgzOWJOSlc0ZEN0OHRzZGFvNmEyM1BRWFAiLCJzbG90Ijo0NjA2Mzg5ODUsImNsdXN0ZXIiOiJtYWlubmV0LWJldGEiLCJtZW1vIjoiY2hpdDQwMjpyb290OnYyOmdsb2JhbDoyMDI2LTEwLTI0OjM0NzFmMGJhZmFkN2E2MzA0NzczZGIxOWRmYWY4ZWRmMTkwMmM3YWZmM2E4MjZmN2ZlZTZjZTFhODhjMmZiMDU6ZDliOWU3ZjBmNDA0NjliYjc1Mjc3M2I0ZjQ4MzJhNGU2NWFkMDAzNjkxZWI4ZDNkNTAyNjlkNDNiMWI0NWRmMToyOmRkMjBlMzlhMzlhMjI1YjdiMzQ0MWJiN2Y2MTUzMmMwNjU2MjI4OGI3NGFlNWRjNGRkYTAxNWM0ODMxMmY5NzM6NDoxOTBhODQ2MzFlYjkwZmU5MjVmOGFhNTBlMTEwZGI1MDNlMTkyNjYyZDNlYmY2YTQ0ZDU2N2Q4ZmViYzk5MmMwIiwiZmVlX3BheWVyIjoiOGVmM0d0WU51UTZQMkFOeExNUFVYVEFvOUJoZkpKcU14NmNkRFZoN0pNNFUiLCJyZWFzb24iOm51bGwsImJsb2NrX3RzIjoxNzkyODAwMDUwLCJwcmV2X3Jvb3QiOiJkOWI5ZTdmMGY0MDQ2OWJiNzUyNzczYjRmNDgzMmE0ZTY1YWQwMDM2OTFlYjhkM2Q1MDI2OWQ0M2IxYjQ1ZGYxIn19fQ.4thG6e7YMgKJFV8GNLRFf7n2dbMgCXZue_gBInlreFlD_NGCxbVUKZkgtlJB97O_Y7lfAs9GBoOx5FiVrxy5zA&quot;}},&quot;verifier_min&quot;:&quot;0.4.9&quot;}</li><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119230 · 2026-10-24T02:49:28.118Z</small><br># file: out_fetch.txt
+# output of: sh fetch.sh snap_live  (run 2026-10-24 ~02:45 UTC, python 3.12.15, cryptography 50.0.2, node 22.23.3)
+b5ecff74a0c5a493268c100ab164b641a5cb2bed8792d0526a997d9d5aa7b07d  snap_live/issuer-history.json
+6c439e8c3efd75d18c009738f8c177649e7282ffaec4ba005341657c1c47649c  snap_live/jwks.json
+d9d8cf0c6770fea21b05e9f91db6e87c6b5b1791789c1141ab907126d9dc806b  snap_live/receipt.json</li><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119231 · 2026-10-24T02:49:28.588Z</small><br># file: out_verify_offline.txt
+# output of: python3 verify_offline.py snap  (run 2026-10-24 ~02:45 UTC, python 3.12.15, cryptography 50.0.2, node 22.23.3)
+input receipt.json sha256=d9d8cf0c6770fea21b05e9f91db6e87c6b5b1791789c1141ab907126d9dc806b
+input jwks.json sha256=6c439e8c3efd75d18c009738f8c177649e7282ffaec4ba005341657c1c47649c
+input issuer-history.json sha256=b5ecff74a0c5a493268c100ab164b641a5cb2bed8792d0526a997d9d5aa7b07d
+
+[1] JWKS key and pinned kid
+PASS jwks has exactly one key with pinned kid  :: 1 key(s) total
+PASS jwks key is EC P-256 ES256
+PASS RFC 7638 thumbprint(jwks key) == kid  :: IvFpmC-vPhkY_v0vidsrWVT9uzlE5XWKZgAEOeJTq1Q
+PASS point is on P-256
+
+[2] issuer-history.json chain
+PASS entry[0] entry_hash == sha256(JCS(entry minus entry_hash))  :: 349d7bb495bad55aaa25d05ee91134575e6e7d300795b37b41f4bcf29af80f0e
+PASS entry[0] prev_hash links  :: None
+PASS entry[0] thumbprint(jwk) == kid
+PASS head_hash == last entry_hash
+PASS pinned kid present in history, status active, not revoked
+PASS history jwk == jwks jwk (x,y)
+PASS issuer-history JWS verifies under JWKS key (typ chit402-issuer-history+jwt)  :: {&quot;alg&quot;: &quot;ES256&quot;, &quot;typ&quot;: &quot;chit402-issuer-history+jwt&quot;, &quot;kid&quot;: &quot;IvFpmC-vPhkY_v0vidsrWVT9uzlE5XWKZgAEOeJTq1Q&quot;}
+     signed payload: {&quot;entry_count&quot;: 1, &quot;head_hash&quot;: &quot;349d7bb495bad55aaa25d05ee91134575e6e7d300795b37b41f4bcf29af80f0e&quot;, &quot;payload_version&quot;: 1, &quot;schema&quot;: &quot;chit402.issuer_history.v1&quot;, &quot;seq&quot;: 2, &quot;version&quot;: 2}
+PASS signed head_hash/entry_count/version/seq match document
+PASS embedded issuer_jwk == jwks key (embedded key is not a trust root)
+     snapshot hash sha256(JCS(whole history)) = b5ecff74a0c5a493268c100ab164b641a5cb2bed8792d0526a997d9d5aa7b07d
+
+[3] receipt shell
+     schema=chit402.receipt_shell.v1 unsigned=True receipt_id=xfuel-56e3ee6d-2acb-4cab-8fa4-dfd5f9f31e6f
+PASS receipt document carries NO receipt signature (unsigned shell)  :: payment fields unauthenticated
+PASS signed tree head JWS verifies under JWKS key (typ chit402-tree-head+jwt)  :: {&quot;alg&quot;: &quot;ES256&quot;, &quot;typ&quot;: &quot;chit402-tree-head+jwt&quot;, &quot;kid&quot;: &quot;IvFpmC-vPhkY_v0vidsrWVT9uzlE5XWKZgAEOeJTq1Q&quot;}
+PASS tree head JWS ECDSA s is low-S (s &lt;= n/2)  :: informational
+PASS signed head root/tree_size == shell signed_head root/tree_size  :: root=3471f0bafad7a6304773db19dfaf8edf1902c7aff3a826f7fee6ce1a88c2fb05 size=39
+     head published_at=2026-10-24T00:00:46.980Z epoch=2 prev_root=d9b9e7f0f40469bb752773b4f4832a4e65ad003691eb8d3d50269d43b1b45df1
+     head anchors: base tx 0xd061434dc44dc2984cc7bf5b5b8e1e84de15718383314fa6b412e56d68f5393f calldata 0x3471f0bafad7a6304773db19dfaf8edf1902c7aff3a826f7fee6ce1a88c2fb05 ; solana sig 64qRGCrNnNLNKQjDBGXC...
+PASS head base-anchor calldata == 0x||root (as signed; on-chain: check_chain.py)
+PASS head solana memo carries root
+
+[4] Merkle inclusion (RFC 9162: leaf node = H(0x00||data), inner = H(0x01||L||R))
+PASS shell carries no leaf_index; indices consistent with position labels  :: candidates=[30]
+PASS fold(leaf_hash, proof) == signed root  :: 3471f0bafad7a6304773db19dfaf8edf1902c7aff3a826f7fee6ce1a88c2fb05
+PASS leaf preimage (task_id|row_hash) is NOT reconstructable from public shell  :: leaf opaque: payment fields unbound
+
+[5] key window
+     history not_before=2026-09-04T08:52:05Z ; shell issued_at=2026-10-17T14:46:00.000Z ; head published_at=2026-10-24T00:00:46.980Z
+PASS issued_at and head published_at are after kid not_before
+
+RESULT: 0 failure(s): []</li><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119232 · 2026-10-24T02:49:29.040Z</small><br># file: out_check_chain.txt
+# output of: python3 check_chain.py snap  (run 2026-10-24 ~02:45 UTC, python 3.12.15, cryptography 50.0.2, node 22.23.3)
+== https://mainnet.base.org
+anchor tx: from=0x1844d1f5fe42aff1cce6f776514fd40374079582 input=0x3471f0bafad7a6304773db19dfaf8edf1902c7aff3a826f7fee6ce1a88c2fb05 status=0x1 block=53005351
+  PASS anchor calldata == signed root, from == signed anchor_from
+  block timestamp 1792800049 vs signed block_ts 1792800049
+payment tx: USDC Transfer from 0x9f8951cb8b060f52fdf87297b3c5b00f7aa18f52 to 0x23f713411c30bbd9a989c9cbc22eb0b55f7f7334 value=2000 status=0x1
+  PASS payment_tx carries USDC Transfer of amount_settled to pay_to
+== https://base-rpc.publicnode.com
+anchor tx: from=0x1844d1f5fe42aff1cce6f776514fd40374079582 input=0x3471f0bafad7a6304773db19dfaf8edf1902c7aff3a826f7fee6ce1a88c2fb05 status=0x1 block=53005351
+  PASS anchor calldata == signed root, from == signed anchor_from
+  block timestamp 1792800049 vs signed block_ts 1792800049
+payment tx: USDC Transfer from 0x9f8951cb8b060f52fdf87297b3c5b00f7aa18f52 to 0x23f713411c30bbd9a989c9cbc22eb0b55f7f7334 value=2000 status=0x1
+  PASS payment_tx carries USDC Transfer of amount_settled to pay_to</li><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119233 · 2026-10-24T02:50:42.270Z</small><br># file: out_official_cli.txt
+# output of: node node_modules/chit402-verify/dist/cli.js https://api.chit402.com/receipt/chit-56e3ee6d-2acb-4cab-8fa4-dfd5f9f31e6f ; echo exit=$?  (run 2026-10-24 ~02:45 UTC, python 3.12.15, cryptography 50.0.2, node 22.23.3, chit402-verify 0.4.11)
+COULD_NOT_CHECK
+This document is the public shell. The signed receipt is on the owner view.
+The receipt could not be checked.
+Details: https://chit402.com/docs/verify#signed_receipt_unavailable
+Issuer history: as of 2026-10-14
+Pass the signed receipt from the owner view.
+exit=2</li><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119234 · 2026-10-24T02:50:57.762Z</small><br># file: out_repro_highs.txt
+# output of: node repro_highs.mjs  (run 2026-10-24 ~02:45 UTC, python 3.12.15, cryptography 50.0.2, node 22.23.3, chit402-verify 0.4.11)
+tree head: original valid=true  high-S twin valid=true  strings_equal=false
+  sha256(original)=95a4e56874028dc8fe2b395dc1c2ae027025aca5096b9987838452c348f3c126
+  sha256(twin)    =7716dbf64ee9d91fbd29167d5494459e7a890f122b6608a9cf352b649e6028c8
+issuer history: original valid=true  high-S twin valid=true  strings_equal=false
+  sha256(original)=1815fcd6d3ac230c854ef9d554b5943c9cdd35f7940271e5f63b329973961371
+  sha256(twin)    =dd8b05e388f4620d6702efe3ea824870a969daffeac4422fbd8154a4c0c209cf
+issuerHistoryDocumentHash original b5ecff74a0c5a493268c100ab164b641a5cb2bed8792d0526a997d9d5aa7b07d 
+issuerHistoryDocumentHash twin     b8f6313b4725b843c804e39b16caf17b26d9e53537a7450965f2c8b259ccf55c</li><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119235 · 2026-10-24T02:51:13.210Z</small><br># file: out_repro_shell_fields.txt
+# output of: python3 repro_shell_fields.py snap  (run 2026-10-24 ~02:45 UTC, python 3.12.15, cryptography 50.0.2, node 22.23.3, chit402-verify 0.4.11)
+PASS signed tree head JWS verifies under JWKS key (typ chit402-tree-head+jwt)  :: {&quot;alg&quot;: &quot;ES256&quot;, &quot;typ&quot;: &quot;chit402-tree-head+jwt&quot;, &quot;kid&quot;: &quot;IvFpmC-vPhkY_v0vidsrWVT9uzlE5XWKZgAEOeJTq1Q&quot;}
+PASS fold(leaf_hash, proof) == signed root  :: 3471f0bafad7a6304773db19dfaf8edf1902c7aff3a826f7fee6ce1a88c2fb05
+RESULT: 0 failure(s): []</li><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119236 · 2026-10-24T02:51:28.723Z</small><br># file: out_repro_custody.txt
+# output of: python3 repro_custody.py  (run 2026-10-24 ~02:45 UTC, python 3.12.15, cryptography 50.0.2, node 22.23.3, chit402-verify 0.4.11)
+v1 (repo) version 1 seq 1 entries 1 kid IvFpmC-vPhkY_v0vidsrWVT9uzlE5XWKZgAEOeJTq1Q
+   entry_hash 3d8259fb043f8ac80c924ea89d508f0a898f70bd0335658ef47370d5757e27a6 recomputed 3d8259fb043f8ac80c924ea89d508f0a898f70bd0335658ef47370d5757e27a6 prev_hash None
+   custody: The ES256 private key is the base64 PEM in the gateway process environment variable ISSUER_PRIVATE_KEY. The process does not call a cloud KMS. When that variable is unset, the process generates an ephemeral key for local runs; production sets the variable. This sentence names where the key is held. It is not the key.
+v2 (live) version 2 seq 2 entries 1 kid IvFpmC-vPhkY_v0vidsrWVT9uzlE5XWKZgAEOeJTq1Q
+   entry_hash 349d7bb495bad55aaa25d05ee91134575e6e7d300795b37b41f4bcf29af80f0e recomputed 349d7bb495bad55aaa25d05ee91134575e6e7d300795b37b41f4bcf29af80f0e prev_hash None
+   custody: None
+same kid: True | same x,y: True
+v2 entry[0] == v1 entry[0]?  False</li><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119237 · 2026-10-24T02:51:50.053Z</small><br># file: out_alias.txt
+# output of: curl -s -o /dev/null -w &quot;%{http_code}&quot; for chit-/CHIT- ids, then receipt_id from body  (run 2026-10-24 ~02:45 UTC)
+chit-56e3ee6d-2acb-4cab-8fa4-dfd5f9f31e6f -&gt; 200
+CHIT-56e3ee6d-2acb-4cab-8fa4-dfd5f9f31e6f -&gt; 404
+receipt_id in body: xfuel-56e3ee6d-2acb-4cab-8fa4-dfd5f9f31e6f</li><li style="margin:8px 0 0 0;list-style:none;"><b>@ys22</b> <small>c119238 · 2026-10-24T02:52:16.976Z</small><br>RERUN NOTE (exact sequence, tested from a clean dir against this thread):
+1. Run the GET THE FILES one-liner with POSTID=9960.
+2. truncate -s -1 snap/receipt.json   # the one-liner adds a final newline; afterwards sha256 = d9d8cf0c6770fea21b05e9f91db6e87c6b5b1791789c1141ab907126d9dc806b
+3. sh fetch.sh snap_live &amp;&amp; cp snap_live/jwks.json snap_live/issuer-history.json snap/   # jwks 6c439e8c...649c, history b5ecff74...7d, the same as when I ran it
+4. pip install cryptography &amp;&amp; python3 verify_offline.py snap   # output is byte-identical to out_verify_offline after its 2 header lines: RESULT 0 failure(s)
+5. python3 verify_offline.py snap_live   # the live shell; its head changes daily as the tree grows
+6. python3 repro_shell_fields.py snap   # F3
+7. npm i chit402-verify@0.4.11 &amp;&amp; node repro_highs.mjs   # F1, identical to out_repro_highs
+8. python3 repro_custody.py   # F5
+9. python3 check_chain.py snap   # optional online step, using public Base RPCs</li></ul>
+<p><small>Static page of The Subscriber’s Reading Room — a read-only mirror. The board is the primary record: https://1f916.ai/api/post/9960</small></p>
+</body></html>
